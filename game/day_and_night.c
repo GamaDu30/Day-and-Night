@@ -1,75 +1,147 @@
-typedef enum EntityArchetype
+#pragma region DEFINE
+
+#define MAX_ENTITIES_COUNT 1024
+#define MAX_IMAGES_COUNT 1024
+
+#pragma endregion DEFINE
+
+#pragma region ENUM
+
+typedef enum EntityType
 {
-	arch_nil = 0,
-	arch_mineral = 1,
-	arch_tree = 2,
-	arch_player = 3,
-} EntityArchetype;
+	ENTITY_nil = 0,
+	ENTITY_mineral = 1,
+	ENTITY_tree = 2,
+	ENTITY_player = 3,
+} EntityType;
+
+typedef enum SpriteId
+{
+	SPRITE_player,
+	SPRITE_tree0,
+	SPRITE_tree1,
+	SPRITE_mineral0,
+	SPRITE_mineral1,
+	SPRITE_MAX
+} SpriteId;
+#pragma endregion ENUM
+
+#pragma region STRUCT
 
 typedef struct Entity
 {
-	bool is_valid;
-	EntityArchetype arch;
+	bool isValid;
+	EntityType type;
 	Vector2 pos;
 
-	bool render_sprite;
-	Gfx_Image *sprite;
+	SpriteId spriteId;
 } Entity;
-
-#define MAX_ENTITIES_COUNT 1024
 
 typedef struct World
 {
 	Entity entitites[MAX_ENTITIES_COUNT];
 } World;
-World *world = 0;
 
-Entity *entity_create()
+typedef struct Sprite
 {
-	Entity *entity_found = 0;
+	Gfx_Image* image;
+} Sprite;
+
+#pragma endregion STRUCT
+
+#pragma region GLOBAL
+
+World *world = 0;
+Sprite sprites[SPRITE_MAX];
+
+#pragma endregion GLOBAL
+
+#pragma region FUNCTION
+
+Entity* entityCreate(EntityType type, SpriteId spriteId, Vector2 pos)
+{
+	Entity *entityFound = 0;
 	for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
 	{
-		Entity *cur_entity = &world->entitites[i];
-		if (!cur_entity->is_valid)
+		Entity *curEntity = &world->entitites[i];
+		if (!curEntity->isValid)
 		{
-			entity_found = cur_entity;
+			entityFound = curEntity;
 			break;
 		}
 	}
 
-	assert(entity_found, "No entity found");
-	entity_found->is_valid = true;
-	return entity_found;
+	assert(entityFound, "entityCreate: No entity found");
+	entityFound->isValid = true;
+	entityFound->pos = pos;
+	entityFound->spriteId = spriteId;
+	return entityFound;
 }
 
-void entity_destroy(Entity *entity)
+void destroyEntity(Entity *entity)
 {
 	memset(entity, 0, sizeof(Entity));
+	entity->isValid = false;
 }
 
-void setup_rock(Entity *entity)
+Sprite* getSprite(SpriteId spriteId)
 {
-	entity->arch = arch_mineral;
+	if (spriteId >= 0 && spriteId < SPRITE_MAX)
+	{
+		return &sprites[spriteId];
+	}
+
+	assert(false, "getSprite: no sprite found");
 }
 
-void setup_tree(Entity *entity)
+void drawSpriteAtPos(SpriteId spriteId, Vector2 pos, Vector4 color)
 {
-	entity->arch = arch_tree;
-}
-
-void setup_player(Entity *entity)
-{
-	entity->arch = arch_player;
-}
-
-void draw_image_at_pos(Gfx_Image *image, Vector2 pos)
-{
+	Gfx_Image* image = getSprite(spriteId)->image;
 	Vector2 size = v2(image->width, image->height);
 	Matrix4 xform = m4_scalar(1.0);
 	xform = m4_translate(xform, v3(pos.x, pos.y, 0.0f));
 	xform = m4_translate(xform, v3(-size.x * 0.5, 0.0, 0.0f));
-	draw_image_xform(image, xform, size, COLOR_WHITE);
+	draw_image_xform(image, xform, size, color);
 }
+
+float lerp_f(float a, float b, float t) 
+{
+	return a + (b - a) * t;
+}
+
+Vector2 lerp_v2(Vector2 a, Vector2 b, float t)
+{
+	return v2(lerp_f(a.x, b.x, t), lerp_f(a.y, b.y, t));
+}
+
+Vector2 screenToWorld(Vector2 screenPos)
+{
+	Vector2 posNorm = v2(screenPos.x / (window.width * 0.5) - 1.0f, screenPos.y / (window.height * 0.5) - 1.0f);
+	Vector4 posWorld = v4(posNorm.x, posNorm.y, 0, 1);
+	posWorld = m4_transform(m4_inverse(draw_frame.projection), posWorld);
+	posWorld = m4_transform(draw_frame.camera_xform, posWorld);
+
+	printf("%f, %f\n", posWorld.x, posWorld.y);
+
+	return v2(posWorld.x, posWorld.y);
+}
+
+boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
+{
+	// pos.x -= size.x * 0.5;
+	boolean res = point.x > (pos.x - size.x * 0.5) &&
+	point.x < (pos.x + size.x * 0.5) &&
+	point.y > (pos.y - size.y * 0.5) &&
+	point.y < (pos.y + size.y * 0.5);
+
+	draw_rect(pos, size, res ? v4(1, 0, 0, 0.5) : v4(1, 1, 1, 0.5));
+
+	return res;
+}
+
+#pragma endregion FUNCTION
+
+#pragma region ENTRY
 
 int entry(int argc, char **argv)
 {
@@ -80,34 +152,27 @@ int entry(int argc, char **argv)
 	window.y = (1080 - window.height) / 2;
 	window.clear_color = hex_to_rgba(0x2A2A38ff);
 
+	#pragma region INIT
+	sprites[SPRITE_player] = (Sprite){.image = load_image_from_disk(STR("assets/player.png"), get_heap_allocator())};
+	sprites[SPRITE_tree0] = (Sprite){.image = load_image_from_disk(STR("assets/tree0.png"), get_heap_allocator())};
+	sprites[SPRITE_tree1] = (Sprite){.image = load_image_from_disk(STR("assets/tree1.png"), get_heap_allocator())};
+	sprites[SPRITE_mineral0] = (Sprite){.image = load_image_from_disk(STR("assets/mineral0.png"), get_heap_allocator())};
+	sprites[SPRITE_mineral1] = (Sprite){.image = load_image_from_disk(STR("assets/mineral1.png"), get_heap_allocator())};
+
 	world = alloc(get_heap_allocator(), sizeof(World));
 
-	Gfx_Image *player = load_image_from_disk(STR("assets/player.png"), get_heap_allocator());
-	assert(player, "player.png not found");
-	Gfx_Image *tree0 = load_image_from_disk(STR("assets/tree0.png"), get_heap_allocator());
-	assert(tree0, "tree0.png not found");
-	Gfx_Image *tree1 = load_image_from_disk(STR("assets/tree1.png"), get_heap_allocator());
-	assert(tree1, "tree1.png not found");
-	Gfx_Image *mineral0 = load_image_from_disk(STR("assets/mineral0.png"), get_heap_allocator());
-	assert(mineral0, "mineral0.png not found");
-	Gfx_Image *mineral1 = load_image_from_disk(STR("assets/mineral1.png"), get_heap_allocator());
-	assert(mineral1, "mineral1.png not found");
-
-	Entity *player_en = entity_create();
-	setup_player(player_en);
+	Entity *player = entityCreate(ENTITY_player, SPRITE_player, v2(0, 0));
 
 	for (int i = 0; i < 10; i++)
 	{
-		Entity *rock = entity_create();
-		setup_rock(rock);
-		rock->pos = v2(get_random_float32_in_range(-50.0, 50.0), get_random_float32_in_range(-100.0, 100.0));
+		Vector2 pos = v2(get_random_float32_in_range(-50.0, 50.0), get_random_float32_in_range(-100.0, 100.0));
+		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral0, pos);
 	}
 
 	for (int i = 0; i < 15; i++)
 	{
-		Entity *tree = entity_create();
-		setup_tree(tree);
-		tree->pos = v2(get_random_float32_in_range(-50.0, 50.0), get_random_float32_in_range(-100.0, 100.0));
+		Vector2 pos = v2(get_random_float32_in_range(-50.0, 50.0), get_random_float32_in_range(-100.0, 100.0));
+		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree0, pos);
 	}
 
 	float seconds_counter = 0.0;
@@ -115,41 +180,35 @@ int entry(int argc, char **argv)
 
 	float64 last_time = os_get_elapsed_seconds();
 
+	float zoom = 5.0;
+	Vector2 camPos;
+
+	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
+	assert(font, "Failed loading arial.ttf");
+
+	#pragma endregion INIT
+
+	#pragma region MAIN_LOOP
 	while (!window.should_close)
 	{
 		reset_temporary_storage();
-
 		draw_frame_reset(&draw_frame);
-		float zoom = 5.0;
-		draw_frame.camera_xform = m4_make_scale(v3(1.0 / zoom, 1.0 / zoom, 1));
 
+		//Delta Time
 		float64 now = os_get_elapsed_seconds();
 		float64 dt = now - last_time;
 		last_time = now;
 
+		//Camera
+		camPos = lerp_v2(camPos, player->pos, dt * 10);
+		draw_frame.camera_xform = m4_make_scale(v3(1.0, 1.0, 1.0));
+		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_translation(v3(camPos.x, camPos.y, 0)));
+		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0 / zoom, 1.0 / zoom, 1)));
+
+		//Update
 		os_update();
 
-		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
-		{
-			Entity *cur_entity = &world->entitites[i];
-			if (cur_entity->is_valid)
-			{
-				switch (cur_entity->arch)
-				{
-				case arch_mineral:
-					draw_image_at_pos(mineral0, cur_entity->pos);
-					break;
-				case arch_tree:
-					draw_image_at_pos(tree0, cur_entity->pos);
-					break;
-				case arch_player:
-					draw_image_at_pos(player, cur_entity->pos);
-					break;
-				default:
-					break;
-				}
-			}
-		}
+		screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y));
 
 		if (is_key_just_pressed(KEY_ESCAPE))
 		{
@@ -175,10 +234,24 @@ int entry(int argc, char **argv)
 		}
 
 		input_axis = v2_normalize(input_axis);
+		player->pos = v2_add(player->pos, v2_mulf(input_axis, 50.0 * dt));
 
-		player_en->pos = v2_add(player_en->pos, v2_mulf(input_axis, 50.0 * dt));
+		//DRAW
+		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
+		{
+			Entity *cur_entity = &world->entitites[i];
+			if (cur_entity->isValid)
+			{
+				Gfx_Image* image = getSprite(cur_entity->spriteId)->image;
+				colAABBPoint(cur_entity->pos, v2(image->width, image->height), screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y)));
+				drawSpriteAtPos(cur_entity->spriteId, cur_entity->pos, COLOR_WHITE);
+				// draw_text(font, tprint("x:%.1f, y:%.1f", cur_entity->pos.x, cur_entity->pos.y), 48, cur_entity->pos, v2(0.075f, 0.075f), COLOR_RED);
+			}
+		}
 
 		gfx_update();
+
+		//FPS
 		seconds_counter += dt;
 		frame_count++;
 		if (seconds_counter > 1.0)
@@ -189,5 +262,9 @@ int entry(int argc, char **argv)
 		}
 	}
 
+	#pragma endregion MAIN_LOOP
+
 	return 0;
 }
+
+#pragma endregion ENTRY
