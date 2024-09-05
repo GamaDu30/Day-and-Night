@@ -13,6 +13,7 @@ typedef enum EntityType
 	ENTITY_mineral = 1,
 	ENTITY_tree = 2,
 	ENTITY_player = 3,
+	ENTITY_item = 4,
 } EntityType;
 
 typedef enum SpriteId
@@ -24,6 +25,7 @@ typedef enum SpriteId
 	SPRITE_mineral1,
 	SPRITE_MAX
 } SpriteId;
+
 #pragma endregion ENUM
 
 #pragma region STRUCT
@@ -35,6 +37,8 @@ typedef struct Entity
 	Vector2 pos;
 
 	SpriteId spriteId;
+
+	int health;
 } Entity;
 
 typedef struct World
@@ -173,6 +177,23 @@ void drawGround(Vector2 origin, Vector2 size)
 	}
 }
 
+void manageMouseClick()
+{
+	Entity* selectedEntity = world->selectedEntity;
+
+	if (selectedEntity)
+	{
+		selectedEntity->health--;
+		play_one_audio_clip(STR("assets/sounds/EntityHit.wav"));
+
+		if (selectedEntity->health <= 0)
+		{
+			destroyEntity(selectedEntity);
+			play_one_audio_clip(STR("assets/sounds/EntityDestroy.wav"));
+		}
+	}
+}
+
 #pragma endregion FUNCTION
 
 #pragma region ENTRY
@@ -187,15 +208,16 @@ int entry(int argc, char **argv)
 	window.clear_color = hex_to_rgba(0x2A2A38ff);
 
 	#pragma region INIT
-	sprites[SPRITE_player] = (Sprite){.image = load_image_from_disk(STR("assets/player.png"), get_heap_allocator())};
-	sprites[SPRITE_tree0] = (Sprite){.image = load_image_from_disk(STR("assets/tree0.png"), get_heap_allocator())};
-	sprites[SPRITE_tree1] = (Sprite){.image = load_image_from_disk(STR("assets/tree1.png"), get_heap_allocator())};
-	sprites[SPRITE_mineral0] = (Sprite){.image = load_image_from_disk(STR("assets/mineral0.png"), get_heap_allocator())};
-	sprites[SPRITE_mineral1] = (Sprite){.image = load_image_from_disk(STR("assets/mineral1.png"), get_heap_allocator())};
+	sprites[SPRITE_player] = (Sprite){.image = load_image_from_disk(STR("assets/images/player.png"), get_heap_allocator())};
+	sprites[SPRITE_tree0] = (Sprite){.image = load_image_from_disk(STR("assets/images/tree0.png"), get_heap_allocator())};
+	sprites[SPRITE_tree1] = (Sprite){.image = load_image_from_disk(STR("assets/images/tree1.png"), get_heap_allocator())};
+	sprites[SPRITE_mineral0] = (Sprite){.image = load_image_from_disk(STR("assets/images/mineral0.png"), get_heap_allocator())};
+	sprites[SPRITE_mineral1] = (Sprite){.image = load_image_from_disk(STR("assets/images/mineral1.png"), get_heap_allocator())};
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 
 	Entity *player = entityCreate(ENTITY_player, SPRITE_player, v2(0, 0));
+	player->health = 100;
 
 	for (int i = 0; i < 10; i++)
 	{
@@ -203,6 +225,7 @@ int entry(int argc, char **argv)
 		pos = tileToWorldPos(pos);
 		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
 		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral0, pos);
+		mineral->health = 5;
 	}
 
 	for (int i = 0; i < 15; i++)
@@ -211,6 +234,7 @@ int entry(int argc, char **argv)
 		pos = tileToWorldPos(pos);
 		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
 		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree0, pos);
+		tree->health = 5;
 	}
 
 	float seconds_counter = 0.0;
@@ -249,6 +273,7 @@ int entry(int argc, char **argv)
 
 		Vector2 mouseWorld = screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y));
 
+		//Entity Selection
 		float distMin = 1000;
 		world->selectedEntity = 0;
 		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
@@ -263,6 +288,13 @@ int entry(int argc, char **argv)
 					world->selectedEntity = curEntity;
 				}
 			}
+		}
+
+		//Mouse Click
+		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
+		{
+			consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+			manageMouseClick();
 		}
 
 		if (is_key_just_pressed(KEY_ESCAPE))
@@ -299,12 +331,15 @@ int entry(int argc, char **argv)
 			Entity *curEntity = &world->entitites[i];
 			if (curEntity->isValid)
 			{
+				Vector4 col = v4(1, 1, 1, 1);
 				if (curEntity == world->selectedEntity)
 				{
-					draw_rect(worldToTilePos(mouseWorld), v2(tileSize, tileSize), v4(0.5f, 0.f, 0.f, 0.25f));
+					col.g = 0.5f;
+					col.b = 0.5f;
+					// draw_rect(worldToTilePos(mouseWorld), v2(tileSize, tileSize), v4(0.5f, 0.f, 0.f, 0.25f));
 				}
 
-				drawSpriteAtPos(curEntity->spriteId, curEntity->pos, COLOR_WHITE);
+				drawSpriteAtPos(curEntity->spriteId, curEntity->pos, col);
 			
 				// Gfx_Image* image = getSprite(curEntity->spriteId)->image;
 				// colAABBPoint(curEntity->pos, v2(image->width, image->height), screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y)));
