@@ -40,6 +40,7 @@ typedef struct Entity
 typedef struct World
 {
 	Entity entitites[MAX_ENTITIES_COUNT];
+	Entity* selectedEntity;
 } World;
 
 typedef struct Sprite
@@ -53,6 +54,9 @@ typedef struct Sprite
 
 World *world = 0;
 Sprite sprites[SPRITE_MAX];
+const int tileSize = 15;
+float camZoom = 5.0;
+float entitySelectionRadius = tileSize * 0.5f;
 
 #pragma endregion GLOBAL
 
@@ -121,22 +125,52 @@ Vector2 screenToWorld(Vector2 screenPos)
 	posWorld = m4_transform(m4_inverse(draw_frame.projection), posWorld);
 	posWorld = m4_transform(draw_frame.camera_xform, posWorld);
 
-	printf("%f, %f\n", posWorld.x, posWorld.y);
-
 	return v2(posWorld.x, posWorld.y);
+}
+
+Vector2 worldToTilePos(Vector2 worldPos)
+{
+	return v2_mulf(v2(floor(worldPos.x / tileSize), floor(worldPos.y / tileSize)), tileSize);
+}
+
+Vector2 tileToWorldPos(Vector2 tilePos)
+{
+	return v2_mulf(tilePos, tileSize);
 }
 
 boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
 {
-	// pos.x -= size.x * 0.5;
-	boolean res = point.x > (pos.x - size.x * 0.5) &&
-	point.x < (pos.x + size.x * 0.5) &&
-	point.y > (pos.y - size.y * 0.5) &&
-	point.y < (pos.y + size.y * 0.5);
+	pos.x -= size.x * 0.5;
+	boolean res = point.x > pos.x &&
+	point.x < pos.x + size.x &&
+	point.y > pos.y &&
+	point.y < pos.y + size.y;
 
 	draw_rect(pos, size, res ? v4(1, 0, 0, 0.5) : v4(1, 1, 1, 0.5));
 
 	return res;
+}
+
+void drawGround(Vector2 origin, Vector2 size)
+{
+	Vector2 tilePos = worldToTilePos(origin);
+	Vector2 offset = v2((size.x * tileSize) / 2, (size.y * tileSize) / 2);
+
+	for (int y = tilePos.y - size.y * tileSize; y < tilePos.y + size.y * tileSize; y += tileSize)
+	{
+		for (int x = tilePos.x - size.x * tileSize; x < tilePos.x + size.x * tileSize; x += tileSize)
+		{
+			Vector2 pos = v2(x, y);
+			Vector4 col = v4(0.2f, 0.2f, 0.5f, 0.75f);
+			if ((x / tileSize + y / tileSize) % 2 == 0)
+			{
+				col.r += 0.1f;
+				col.g += 0.1f;
+			}
+			
+			draw_rect(pos, v2(tileSize, tileSize), col);
+		}
+	}
 }
 
 #pragma endregion FUNCTION
@@ -165,13 +199,17 @@ int entry(int argc, char **argv)
 
 	for (int i = 0; i < 10; i++)
 	{
-		Vector2 pos = v2(get_random_float32_in_range(-50.0, 50.0), get_random_float32_in_range(-100.0, 100.0));
+		Vector2 pos = v2(get_random_int_in_range(-5, 5), get_random_int_in_range(-5, 5));
+		pos = tileToWorldPos(pos);
+		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
 		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral0, pos);
 	}
 
 	for (int i = 0; i < 15; i++)
 	{
-		Vector2 pos = v2(get_random_float32_in_range(-50.0, 50.0), get_random_float32_in_range(-100.0, 100.0));
+		Vector2 pos = v2(get_random_int_in_range(-10, 10), get_random_int_in_range(-10, 10));
+		pos = tileToWorldPos(pos);
+		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
 		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree0, pos);
 	}
 
@@ -180,11 +218,12 @@ int entry(int argc, char **argv)
 
 	float64 last_time = os_get_elapsed_seconds();
 
-	float zoom = 5.0;
 	Vector2 camPos;
 
 	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
 	assert(font, "Failed loading arial.ttf");
+
+	Vector2 mousePosTile;
 
 	#pragma endregion INIT
 
@@ -203,12 +242,28 @@ int entry(int argc, char **argv)
 		camPos = lerp_v2(camPos, player->pos, dt * 10);
 		draw_frame.camera_xform = m4_make_scale(v3(1.0, 1.0, 1.0));
 		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_translation(v3(camPos.x, camPos.y, 0)));
-		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0 / zoom, 1.0 / zoom, 1)));
+		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0 / camZoom, 1.0 / camZoom, 1)));
 
 		//Update
 		os_update();
 
-		screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y));
+		Vector2 mouseWorld = screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y));
+
+		float distMin = 1000;
+		world->selectedEntity = 0;
+		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
+		{
+			Entity *curEntity = &world->entitites[i];
+			if (curEntity->isValid)
+			{
+				float distCur = v2_length(v2_sub(v2_add(curEntity->pos, v2(0, tileSize * 0.25f)), mouseWorld));
+				if (distCur < entitySelectionRadius && distCur < distMin)
+				{
+					distMin = distCur;
+					world->selectedEntity = curEntity;
+				}
+			}
+		}
 
 		if (is_key_just_pressed(KEY_ESCAPE))
 		{
@@ -236,16 +291,23 @@ int entry(int argc, char **argv)
 		input_axis = v2_normalize(input_axis);
 		player->pos = v2_add(player->pos, v2_mulf(input_axis, 50.0 * dt));
 
-		//DRAW
+		//Draw
+		drawGround(player->pos, v2(10, 6));
+
 		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
 		{
-			Entity *cur_entity = &world->entitites[i];
-			if (cur_entity->isValid)
+			Entity *curEntity = &world->entitites[i];
+			if (curEntity->isValid)
 			{
-				Gfx_Image* image = getSprite(cur_entity->spriteId)->image;
-				colAABBPoint(cur_entity->pos, v2(image->width, image->height), screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y)));
-				drawSpriteAtPos(cur_entity->spriteId, cur_entity->pos, COLOR_WHITE);
-				// draw_text(font, tprint("x:%.1f, y:%.1f", cur_entity->pos.x, cur_entity->pos.y), 48, cur_entity->pos, v2(0.075f, 0.075f), COLOR_RED);
+				if (curEntity == world->selectedEntity)
+				{
+					draw_rect(worldToTilePos(mouseWorld), v2(tileSize, tileSize), v4(0.5f, 0.f, 0.f, 0.25f));
+				}
+
+				drawSpriteAtPos(curEntity->spriteId, curEntity->pos, COLOR_WHITE);
+			
+				// Gfx_Image* image = getSprite(curEntity->spriteId)->image;
+				// colAABBPoint(curEntity->pos, v2(image->width, image->height), screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y)));
 			}
 		}
 
