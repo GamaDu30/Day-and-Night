@@ -3,10 +3,15 @@
 #define MAX_ENTITIES_COUNT 1024
 #define MAX_IMAGES_COUNT 1024
 #define MAX_ITEMS_COUNT 1024
-#define INVENTORY_COLUMN 5
-#define INVENTORY_LINE 3
-#define INVENTORY_SIZE (INVENTORY_COLUMN * INVENTORY_LINE)
+
+#define INVENTORY_COLUMN_COUNT 7
+#define INVENTORY_LINE_COUNT 5
+#define INVENTORY_COUNT (INVENTORY_COLUMN_COUNT * INVENTORY_LINE_COUNT)
 #define STACK_SIZE 64
+#define INVENTORY_CELL_MARGIN 2
+#define INVENTORY_UI_WIDTH 0.5f
+#define INVENTORY_UI_HEIGHT 0.5f
+#define INVENTORY_UI_INNER_MARGIN 0.25f
 
 #pragma endregion DEFINE
 
@@ -68,13 +73,14 @@ typedef struct Item
 	ItemType type;
 	SpriteId spriteId;
 	int amount;
+	Vector2 pos;
 } Item;
 
 typedef struct World
 {
 	Entity entitites[MAX_ENTITIES_COUNT];
 	Entity *selectedEntity;
-	Item inventory[INVENTORY_SIZE];
+	Item inventory[INVENTORY_COUNT];
 } World;
 
 typedef struct Sprite
@@ -163,30 +169,6 @@ Sprite *getSprite(SpriteId spriteId)
 	assert(false, "getSprite: no sprite found");
 }
 
-void drawEntity(Entity *entity)
-{
-	Gfx_Image *image = getSprite(entity->spriteId)->image;
-	Vector2 size = v2(image->width, image->height);
-
-	Vector4 col = v4(1, 1, 1, 1);
-	if (entity == world->selectedEntity)
-	{
-		col.g = 0.5f;
-		col.b = 0.5f;
-	}
-
-	Matrix4 xform = m4_scalar(1.0);
-	xform = m4_translate(xform, v3(entity->pos.x - size.x * 0.5, entity->pos.y, 0.0));
-
-	if (entity->type == ENTITY_item)
-	{
-		xform = m4_translate(xform, v3(0.0, sin(os_get_elapsed_seconds() * 3) + 4, 0.0));
-		draw_image_xform(image, m4_translate(xform, v3(0.0, -5.0, 0.0)), size, v4(0, 0, 0, 0.5));
-	}
-
-	draw_image_xform(image, xform, size, col);
-}
-
 float lerp_f(float a, float b, float t)
 {
 	return a + (b - a) * t;
@@ -230,6 +212,30 @@ boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
 	return res;
 }
 
+void drawEntity(Entity *entity)
+{
+	Gfx_Image *image = getSprite(entity->spriteId)->image;
+	Vector2 size = v2(image->width, image->height);
+
+	Vector4 col = v4(1, 1, 1, 1);
+	if (entity == world->selectedEntity)
+	{
+		col.g = 0.5f;
+		col.b = 0.5f;
+	}
+
+	Matrix4 xform = m4_scalar(1.0);
+	xform = m4_translate(xform, v3(entity->pos.x - size.x * 0.5, entity->pos.y, 0.0));
+
+	if (entity->type == ENTITY_item)
+	{
+		xform = m4_translate(xform, v3(0.0, sin(os_get_elapsed_seconds() * 3) + 4, 0.0));
+		draw_image_xform(image, m4_translate(xform, v3(0.0, -5.0, 0.0)), size, v4(0, 0, 0, 0.5));
+	}
+
+	draw_image_xform(image, xform, size, col);
+}
+
 void drawGround(Vector2 origin, Vector2 size)
 {
 	Vector2 tilePos = worldToTilePos(origin);
@@ -252,10 +258,30 @@ void drawGround(Vector2 origin, Vector2 size)
 	}
 }
 
+void drawInventory()
+{
+	// Background
+	Vector2 inventoryGlobalSize = v2(window.width * INVENTORY_UI_WIDTH, window.height * INVENTORY_UI_HEIGHT);
+	draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-inventoryGlobalSize.x * 0.5f, -inventoryGlobalSize.y * 0.5f, 0)), inventoryGlobalSize, v4(0.25f, 0.25f, 0.25f, 0.8f));
+
+	Vector2 innerSize = v2_mulf(inventoryGlobalSize, (1.0f - INVENTORY_UI_INNER_MARGIN));
+
+	// Items
+	for (float y = 0; y <= innerSize.y; y += innerSize.y / (INVENTORY_LINE_COUNT - 1))
+	{
+		for (float x = 0; x <= innerSize.x; x += innerSize.x / (INVENTORY_COLUMN_COUNT - 1))
+		{
+			Matrix4 xform = m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0.0f));
+			xform = m4_translate(xform, v3(x, y, 0.0f));
+			draw_rect_xform(xform, v2(3, 3), COLOR_RED);
+		}
+	}
+}
+
 void addItemToInvetory(Entity *loot)
 {
 	// Searching for the item in the inventory
-	for (int i = 0; i < INVENTORY_SIZE; i++)
+	for (int i = 0; i < INVENTORY_COUNT; i++)
 	{
 		Item *curItem = &world->inventory[i];
 		if (curItem->type)
@@ -450,6 +476,7 @@ int entry(int argc, char **argv)
 		// Draw
 		drawGround(player->pos, v2(10, 6));
 
+		// Entity
 		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
 		{
 			Entity *curEntity = &world->entitites[i];
@@ -458,6 +485,8 @@ int entry(int argc, char **argv)
 				drawEntity(curEntity);
 			}
 		}
+
+		drawInventory();
 
 		gfx_update();
 
