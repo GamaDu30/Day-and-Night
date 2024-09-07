@@ -3,6 +3,10 @@
 #define MAX_ENTITIES_COUNT 1024
 #define MAX_IMAGES_COUNT 1024
 #define MAX_ITEMS_COUNT 1024
+#define INVENTORY_COLUMN 5
+#define INVENTORY_LINE 3
+#define INVENTORY_SIZE (INVENTORY_COLUMN * INVENTORY_LINE)
+#define STACK_SIZE 64
 
 #pragma endregion DEFINE
 
@@ -27,7 +31,7 @@ typedef enum SpriteId
 	SPRITE_MAX
 } SpriteId;
 
-typedef enum ItemId
+typedef enum ItemType
 {
 	ITEM_nil,
 	ITEM_mineral1,
@@ -37,7 +41,7 @@ typedef enum ItemId
 	ITEM_mineral3,
 	ITEM_log3,
 	ITEM_MAX
-} ItemId;
+} ItemType;
 
 #pragma endregion ENUM
 
@@ -55,25 +59,28 @@ typedef struct Entity
 	bool isDestroyable;
 	bool isSelectable;
 	bool isPickable;
-	ItemId lootId;
+	ItemType lootType;
 	SpriteId lootSpriteId;
 } Entity;
+
+typedef struct Item
+{
+	ItemType type;
+	SpriteId spriteId;
+	int amount;
+} Item;
 
 typedef struct World
 {
 	Entity entitites[MAX_ENTITIES_COUNT];
 	Entity *selectedEntity;
+	Item inventory[INVENTORY_SIZE];
 } World;
 
 typedef struct Sprite
 {
 	Gfx_Image *image;
 } Sprite;
-
-typedef struct Item
-{
-
-} Item;
 
 #pragma endregion STRUCT
 
@@ -90,7 +97,7 @@ float entitySelectionRadius = tileSize * 0.5f;
 
 #pragma region FUNCTION
 
-Entity *entityCreate(EntityType type, SpriteId spriteId, Vector2 pos)
+Entity *entityCreate(EntityType type, SpriteId spriteId, Vector2 pos, ItemType itemType)
 {
 	Entity *entityFound = 0;
 	for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
@@ -118,18 +125,20 @@ Entity *entityCreate(EntityType type, SpriteId spriteId, Vector2 pos)
 	case ENTITY_mineral:
 		entityFound->isDestroyable = true;
 		entityFound->isSelectable = true;
-		entityFound->lootId = ITEM_mineral1;
+		entityFound->lootType = ITEM_mineral1;
 		entityFound->lootSpriteId = SPRITE_iron;
 		break;
 	case ENTITY_tree:
 		entityFound->isDestroyable = true;
 		entityFound->isSelectable = true;
-		entityFound->lootId = ITEM_log1;
+		entityFound->lootType = ITEM_log1;
 		entityFound->lootSpriteId = SPRITE_log;
 		break;
 	case ENTITY_item:
 		entityFound->isDestroyable = false;
 		entityFound->isSelectable = true;
+		entityFound->isPickable = true;
+		entityFound->lootType = itemType;
 		break;
 	default:
 		break;
@@ -243,6 +252,38 @@ void drawGround(Vector2 origin, Vector2 size)
 	}
 }
 
+void addItemToInvetory(Entity *loot)
+{
+	// Searching for the item in the inventory
+	for (int i = 0; i < INVENTORY_SIZE; i++)
+	{
+		Item *curItem = &world->inventory[i];
+		if (curItem->type)
+		{
+			if (curItem->type == loot->lootType && curItem->amount < STACK_SIZE)
+			{
+				curItem->amount++;
+				destroyEntity(loot);
+				printf("Inventory ADD index: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
+				return;
+			}
+
+			continue;
+		}
+
+		// Item not present in inventory OR stack limit reached
+		curItem->amount = 1;
+		curItem->type = loot->lootType;
+		curItem->spriteId = loot->spriteId;
+		destroyEntity(loot);
+		printf("Inventory NEW index: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
+		return;
+	}
+
+	// Inventory is full
+	printf("Inventory No space available\n");
+}
+
 void manageMouseClick()
 {
 	Entity *selectedEntity = world->selectedEntity;
@@ -256,9 +297,9 @@ void manageMouseClick()
 
 			if (selectedEntity->health <= 0)
 			{
-				if (selectedEntity->lootId)
+				if (selectedEntity->lootType)
 				{
-					entityCreate(ENTITY_item, selectedEntity->lootSpriteId, selectedEntity->pos);
+					entityCreate(ENTITY_item, selectedEntity->lootSpriteId, selectedEntity->pos, selectedEntity->lootType);
 				}
 
 				play_one_audio_clip(STR("assets/sounds/EntityDestroy.wav"));
@@ -267,6 +308,7 @@ void manageMouseClick()
 		}
 		else if (selectedEntity->isPickable)
 		{
+			addItemToInvetory(selectedEntity);
 		}
 	}
 }
@@ -298,7 +340,7 @@ int entry(int argc, char **argv)
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 
-	Entity *player = entityCreate(ENTITY_player, SPRITE_player, v2(0, 0));
+	Entity *player = entityCreate(ENTITY_player, SPRITE_player, v2(0, 0), 0);
 	player->health = 100;
 
 	for (int i = 0; i < 10; i++)
@@ -306,7 +348,7 @@ int entry(int argc, char **argv)
 		Vector2 pos = v2(get_random_int_in_range(-5, 5), get_random_int_in_range(-5, 5));
 		pos = tileToWorldPos(pos);
 		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
-		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral, pos);
+		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral, pos, 0);
 		mineral->health = 5;
 	}
 
@@ -315,7 +357,7 @@ int entry(int argc, char **argv)
 		Vector2 pos = v2(get_random_int_in_range(-10, 10), get_random_int_in_range(-10, 10));
 		pos = tileToWorldPos(pos);
 		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
-		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree, pos);
+		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree, pos, 0);
 		tree->health = 5;
 	}
 
@@ -424,7 +466,7 @@ int entry(int argc, char **argv)
 		frame_count++;
 		if (seconds_counter > 1.0)
 		{
-			log("fps: %i", frame_count);
+			// log("fps: %i", frame_count);
 			seconds_counter = 0.0;
 			frame_count = 0;
 		}
