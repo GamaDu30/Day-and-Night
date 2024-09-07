@@ -2,6 +2,7 @@
 
 #define MAX_ENTITIES_COUNT 1024
 #define MAX_IMAGES_COUNT 1024
+#define MAX_ITEMS_COUNT 1024
 
 #pragma endregion DEFINE
 
@@ -19,12 +20,24 @@ typedef enum EntityType
 typedef enum SpriteId
 {
 	SPRITE_player,
-	SPRITE_tree0,
-	SPRITE_tree1,
-	SPRITE_mineral0,
-	SPRITE_mineral1,
+	SPRITE_tree,
+	SPRITE_log,
+	SPRITE_mineral,
+	SPRITE_iron,
 	SPRITE_MAX
 } SpriteId;
+
+typedef enum ItemId
+{
+	ITEM_nil,
+	ITEM_mineral1,
+	ITEM_log1,
+	ITEM_mineral2,
+	ITEM_log2,
+	ITEM_mineral3,
+	ITEM_log3,
+	ITEM_MAX
+} ItemId;
 
 #pragma endregion ENUM
 
@@ -39,18 +52,28 @@ typedef struct Entity
 	SpriteId spriteId;
 
 	int health;
+	bool isDestroyable;
+	bool isSelectable;
+	bool isPickable;
+	ItemId lootId;
+	SpriteId lootSpriteId;
 } Entity;
 
 typedef struct World
 {
 	Entity entitites[MAX_ENTITIES_COUNT];
-	Entity* selectedEntity;
+	Entity *selectedEntity;
 } World;
 
 typedef struct Sprite
 {
-	Gfx_Image* image;
+	Gfx_Image *image;
 } Sprite;
+
+typedef struct Item
+{
+
+} Item;
 
 #pragma endregion STRUCT
 
@@ -58,6 +81,7 @@ typedef struct Sprite
 
 World *world = 0;
 Sprite sprites[SPRITE_MAX];
+Sprite item[ITEM_MAX];
 const int tileSize = 15;
 float camZoom = 5.0;
 float entitySelectionRadius = tileSize * 0.5f;
@@ -66,7 +90,7 @@ float entitySelectionRadius = tileSize * 0.5f;
 
 #pragma region FUNCTION
 
-Entity* entityCreate(EntityType type, SpriteId spriteId, Vector2 pos)
+Entity *entityCreate(EntityType type, SpriteId spriteId, Vector2 pos)
 {
 	Entity *entityFound = 0;
 	for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
@@ -83,16 +107,43 @@ Entity* entityCreate(EntityType type, SpriteId spriteId, Vector2 pos)
 	entityFound->isValid = true;
 	entityFound->pos = pos;
 	entityFound->spriteId = spriteId;
+
+	switch (type)
+	{
+	case ENTITY_player:
+		entityFound->isDestroyable = false;
+		entityFound->isSelectable = false;
+		break;
+	case ENTITY_mineral:
+		entityFound->isDestroyable = true;
+		entityFound->isSelectable = true;
+		entityFound->lootId = ITEM_mineral1;
+		entityFound->lootSpriteId = SPRITE_iron;
+		break;
+	case ENTITY_tree:
+		entityFound->isDestroyable = true;
+		entityFound->isSelectable = true;
+		entityFound->lootId = ITEM_log1;
+		entityFound->lootSpriteId = SPRITE_log;
+		break;
+	case ENTITY_item:
+		entityFound->isDestroyable = false;
+		entityFound->isSelectable = true;
+		break;
+	default:
+		break;
+	}
+
 	return entityFound;
 }
 
 void destroyEntity(Entity *entity)
 {
-	memset(entity, 0, sizeof(Entity));
 	entity->isValid = false;
+	memset(entity, 0, sizeof(Entity));
 }
 
-Sprite* getSprite(SpriteId spriteId)
+Sprite *getSprite(SpriteId spriteId)
 {
 	if (spriteId >= 0 && spriteId < SPRITE_MAX)
 	{
@@ -104,7 +155,7 @@ Sprite* getSprite(SpriteId spriteId)
 
 void drawSpriteAtPos(SpriteId spriteId, Vector2 pos, Vector4 color)
 {
-	Gfx_Image* image = getSprite(spriteId)->image;
+	Gfx_Image *image = getSprite(spriteId)->image;
 	Vector2 size = v2(image->width, image->height);
 	Matrix4 xform = m4_scalar(1.0);
 	xform = m4_translate(xform, v3(pos.x, pos.y, 0.0f));
@@ -112,7 +163,7 @@ void drawSpriteAtPos(SpriteId spriteId, Vector2 pos, Vector4 color)
 	draw_image_xform(image, xform, size, color);
 }
 
-float lerp_f(float a, float b, float t) 
+float lerp_f(float a, float b, float t)
 {
 	return a + (b - a) * t;
 }
@@ -146,9 +197,9 @@ boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
 {
 	pos.x -= size.x * 0.5;
 	boolean res = point.x > pos.x &&
-	point.x < pos.x + size.x &&
-	point.y > pos.y &&
-	point.y < pos.y + size.y;
+				  point.x < pos.x + size.x &&
+				  point.y > pos.y &&
+				  point.y < pos.y + size.y;
 
 	draw_rect(pos, size, res ? v4(1, 0, 0, 0.5) : v4(1, 1, 1, 0.5));
 
@@ -171,7 +222,7 @@ void drawGround(Vector2 origin, Vector2 size)
 				col.r += 0.1f;
 				col.g += 0.1f;
 			}
-			
+
 			draw_rect(pos, v2(tileSize, tileSize), col);
 		}
 	}
@@ -179,19 +230,35 @@ void drawGround(Vector2 origin, Vector2 size)
 
 void manageMouseClick()
 {
-	Entity* selectedEntity = world->selectedEntity;
+	Entity *selectedEntity = world->selectedEntity;
 
 	if (selectedEntity)
 	{
-		selectedEntity->health--;
-		play_one_audio_clip(STR("assets/sounds/EntityHit.wav"));
-
-		if (selectedEntity->health <= 0)
+		if (selectedEntity->isDestroyable)
 		{
-			destroyEntity(selectedEntity);
-			play_one_audio_clip(STR("assets/sounds/EntityDestroy.wav"));
+			selectedEntity->health--;
+			play_one_audio_clip(STR("assets/sounds/EntityHit.wav"));
+
+			if (selectedEntity->health <= 0)
+			{
+				if (selectedEntity->lootId)
+				{
+					entityCreate(ENTITY_item, selectedEntity->lootSpriteId, selectedEntity->pos);
+				}
+
+				play_one_audio_clip(STR("assets/sounds/EntityDestroy.wav"));
+				destroyEntity(selectedEntity);
+			}
 		}
+		else if (selectedEntity.isPickable)
+		{
+				}
 	}
+}
+
+void createSprite(SpriteId spriteId, string path)
+{
+	sprites[spriteId] = (Sprite){.image = load_image_from_disk(path, get_heap_allocator())};
 }
 
 #pragma endregion FUNCTION
@@ -207,12 +274,12 @@ int entry(int argc, char **argv)
 	window.y = (1080 - window.height) / 2;
 	window.clear_color = hex_to_rgba(0x2A2A38ff);
 
-	#pragma region INIT
-	sprites[SPRITE_player] = (Sprite){.image = load_image_from_disk(STR("assets/images/player.png"), get_heap_allocator())};
-	sprites[SPRITE_tree0] = (Sprite){.image = load_image_from_disk(STR("assets/images/tree0.png"), get_heap_allocator())};
-	sprites[SPRITE_tree1] = (Sprite){.image = load_image_from_disk(STR("assets/images/tree1.png"), get_heap_allocator())};
-	sprites[SPRITE_mineral0] = (Sprite){.image = load_image_from_disk(STR("assets/images/mineral0.png"), get_heap_allocator())};
-	sprites[SPRITE_mineral1] = (Sprite){.image = load_image_from_disk(STR("assets/images/mineral1.png"), get_heap_allocator())};
+#pragma region INIT
+	createSprite(SPRITE_player, STR("assets/images/player.png"));
+	createSprite(SPRITE_tree, STR("assets/images/ressource_tree0.png"));
+	createSprite(SPRITE_log, STR("assets/images/item_tree0.png"));
+	createSprite(SPRITE_mineral, STR("assets/images/ressource_mineral0.png"));
+	createSprite(SPRITE_iron, STR("assets/images/item_mineral0.png"));
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 
@@ -224,7 +291,7 @@ int entry(int argc, char **argv)
 		Vector2 pos = v2(get_random_int_in_range(-5, 5), get_random_int_in_range(-5, 5));
 		pos = tileToWorldPos(pos);
 		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
-		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral0, pos);
+		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral, pos);
 		mineral->health = 5;
 	}
 
@@ -233,7 +300,7 @@ int entry(int argc, char **argv)
 		Vector2 pos = v2(get_random_int_in_range(-10, 10), get_random_int_in_range(-10, 10));
 		pos = tileToWorldPos(pos);
 		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
-		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree0, pos);
+		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree, pos);
 		tree->health = 5;
 	}
 
@@ -249,37 +316,37 @@ int entry(int argc, char **argv)
 
 	Vector2 mousePosTile;
 
-	#pragma endregion INIT
+#pragma endregion INIT
 
-	#pragma region MAIN_LOOP
+#pragma region MAIN_LOOP
 	while (!window.should_close)
 	{
 		reset_temporary_storage();
 		draw_frame_reset(&draw_frame);
 
-		//Delta Time
+		// Delta Time
 		float64 now = os_get_elapsed_seconds();
 		float64 dt = now - last_time;
 		last_time = now;
 
-		//Camera
+		// Camera
 		camPos = lerp_v2(camPos, player->pos, dt * 10);
 		draw_frame.camera_xform = m4_make_scale(v3(1.0, 1.0, 1.0));
 		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_translation(v3(camPos.x, camPos.y, 0)));
 		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0 / camZoom, 1.0 / camZoom, 1)));
 
-		//Update
+		// Update
 		os_update();
 
 		Vector2 mouseWorld = screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y));
 
-		//Entity Selection
+		// Entity Selection
 		float distMin = 1000;
 		world->selectedEntity = 0;
 		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
 		{
 			Entity *curEntity = &world->entitites[i];
-			if (curEntity->isValid)
+			if (curEntity->isValid && curEntity->isSelectable)
 			{
 				float distCur = v2_length(v2_sub(v2_add(curEntity->pos, v2(0, tileSize * 0.25f)), mouseWorld));
 				if (distCur < entitySelectionRadius && distCur < distMin)
@@ -290,7 +357,7 @@ int entry(int argc, char **argv)
 			}
 		}
 
-		//Mouse Click
+		// Mouse Click
 		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
 		{
 			consume_key_just_pressed(MOUSE_BUTTON_LEFT);
@@ -323,7 +390,7 @@ int entry(int argc, char **argv)
 		input_axis = v2_normalize(input_axis);
 		player->pos = v2_add(player->pos, v2_mulf(input_axis, 50.0 * dt));
 
-		//Draw
+		// Draw
 		drawGround(player->pos, v2(10, 6));
 
 		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
@@ -340,7 +407,7 @@ int entry(int argc, char **argv)
 				}
 
 				drawSpriteAtPos(curEntity->spriteId, curEntity->pos, col);
-			
+
 				// Gfx_Image* image = getSprite(curEntity->spriteId)->image;
 				// colAABBPoint(curEntity->pos, v2(image->width, image->height), screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y)));
 			}
@@ -348,7 +415,7 @@ int entry(int argc, char **argv)
 
 		gfx_update();
 
-		//FPS
+		// FPS
 		seconds_counter += dt;
 		frame_count++;
 		if (seconds_counter > 1.0)
@@ -359,7 +426,7 @@ int entry(int argc, char **argv)
 		}
 	}
 
-	#pragma endregion MAIN_LOOP
+#pragma endregion MAIN_LOOP
 
 	return 0;
 }
