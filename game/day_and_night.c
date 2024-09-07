@@ -107,6 +107,7 @@ Entity *entityCreate(EntityType type, SpriteId spriteId, Vector2 pos)
 	entityFound->isValid = true;
 	entityFound->pos = pos;
 	entityFound->spriteId = spriteId;
+	entityFound->type = type;
 
 	switch (type)
 	{
@@ -153,14 +154,28 @@ Sprite *getSprite(SpriteId spriteId)
 	assert(false, "getSprite: no sprite found");
 }
 
-void drawSpriteAtPos(SpriteId spriteId, Vector2 pos, Vector4 color)
+void drawEntity(Entity *entity)
 {
-	Gfx_Image *image = getSprite(spriteId)->image;
+	Gfx_Image *image = getSprite(entity->spriteId)->image;
 	Vector2 size = v2(image->width, image->height);
+
+	Vector4 col = v4(1, 1, 1, 1);
+	if (entity == world->selectedEntity)
+	{
+		col.g = 0.5f;
+		col.b = 0.5f;
+	}
+
 	Matrix4 xform = m4_scalar(1.0);
-	xform = m4_translate(xform, v3(pos.x, pos.y, 0.0f));
-	xform = m4_translate(xform, v3(-size.x * 0.5, 0.0, 0.0f));
-	draw_image_xform(image, xform, size, color);
+	xform = m4_translate(xform, v3(entity->pos.x - size.x * 0.5, entity->pos.y, 0.0));
+
+	if (entity->type == ENTITY_item)
+	{
+		xform = m4_translate(xform, v3(0.0, sin(os_get_elapsed_seconds() * 3) + 4, 0.0));
+		draw_image_xform(image, m4_translate(xform, v3(0.0, -5.0, 0.0)), size, v4(0, 0, 0, 0.5));
+	}
+
+	draw_image_xform(image, xform, size, col);
 }
 
 float lerp_f(float a, float b, float t)
@@ -250,9 +265,9 @@ void manageMouseClick()
 				destroyEntity(selectedEntity);
 			}
 		}
-		else if (selectedEntity.isPickable)
+		else if (selectedEntity->isPickable)
 		{
-				}
+		}
 	}
 }
 
@@ -398,18 +413,7 @@ int entry(int argc, char **argv)
 			Entity *curEntity = &world->entitites[i];
 			if (curEntity->isValid)
 			{
-				Vector4 col = v4(1, 1, 1, 1);
-				if (curEntity == world->selectedEntity)
-				{
-					col.g = 0.5f;
-					col.b = 0.5f;
-					// draw_rect(worldToTilePos(mouseWorld), v2(tileSize, tileSize), v4(0.5f, 0.f, 0.f, 0.25f));
-				}
-
-				drawSpriteAtPos(curEntity->spriteId, curEntity->pos, col);
-
-				// Gfx_Image* image = getSprite(curEntity->spriteId)->image;
-				// colAABBPoint(curEntity->pos, v2(image->width, image->height), screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y)));
+				drawEntity(curEntity);
 			}
 		}
 
