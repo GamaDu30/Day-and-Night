@@ -4,14 +4,16 @@
 #define MAX_IMAGES_COUNT 1024
 #define MAX_ITEMS_COUNT 1024
 
-#define INVENTORY_COLUMN_COUNT 7
-#define INVENTORY_LINE_COUNT 5
-#define INVENTORY_COUNT (INVENTORY_COLUMN_COUNT * INVENTORY_LINE_COUNT)
+#define INV_COLUMN_COUNT 5
+#define INV_LINE_COUNT 3
+#define INV_COUNT (INV_COLUMN_COUNT * INV_LINE_COUNT)
 #define STACK_SIZE 64
-#define INVENTORY_CELL_MARGIN 2
-#define INVENTORY_UI_WIDTH 0.5f
-#define INVENTORY_UI_HEIGHT 0.5f
-#define INVENTORY_UI_INNER_MARGIN 0.25f
+#define INV_CELL_MARGIN 8
+#define INV_CELL_SIZE 64
+#define INV_UI_WIDTH 0.5
+#define INV_UI_HEIGHT 0.5
+#define INV_UI_INNER_MARGIN_X 0.15
+#define INV_UI_INNER_MARGIN_Y 0.25
 
 #pragma endregion DEFINE
 
@@ -80,7 +82,7 @@ typedef struct World
 {
 	Entity entitites[MAX_ENTITIES_COUNT];
 	Entity *selectedEntity;
-	Item inventory[INVENTORY_COUNT];
+	Item inventory[INV_COUNT];
 } World;
 
 typedef struct Sprite
@@ -212,6 +214,12 @@ boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
 	return res;
 }
 
+boolean colCircleCircle(Vector2 p1, float r1, Vector2 p2, float r2)
+{
+	float dist = v2_length(v2_sub(p1, p2));
+	return dist < r1 + r2;
+}
+
 void drawEntity(Entity *entity)
 {
 	Gfx_Image *image = getSprite(entity->spriteId)->image;
@@ -261,27 +269,39 @@ void drawGround(Vector2 origin, Vector2 size)
 void drawInventory()
 {
 	// Background
-	Vector2 inventoryGlobalSize = v2(window.width * INVENTORY_UI_WIDTH, window.height * INVENTORY_UI_HEIGHT);
+	Vector2 inventoryGlobalSize = v2(window.width * INV_UI_WIDTH, window.height * INV_UI_HEIGHT);
 	draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-inventoryGlobalSize.x * 0.5f, -inventoryGlobalSize.y * 0.5f, 0)), inventoryGlobalSize, v4(0.25f, 0.25f, 0.25f, 0.8f));
 
-	Vector2 innerSize = v2_mulf(inventoryGlobalSize, (1.0f - INVENTORY_UI_INNER_MARGIN));
+	Vector2 innerSize = v2_mul(inventoryGlobalSize, v2(1.0f - INV_UI_INNER_MARGIN_X, 1.0f - INV_UI_INNER_MARGIN_Y));
+	// draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0)), innerSize, v4(0.5f, 0.5f, 0.5f, 0.8f));
 
 	// Items
-	for (float y = 0; y <= innerSize.y; y += innerSize.y / (INVENTORY_LINE_COUNT - 1))
+	int columnSize = floor(innerSize.x / (INV_CELL_SIZE + INV_CELL_MARGIN));
+
+	Vector2 origin;
+	origin.x = (innerSize.x - ((INV_CELL_SIZE + INV_CELL_MARGIN) * columnSize - INV_CELL_MARGIN)) * 0.5;
+	origin.y = (innerSize.y - ((INV_CELL_SIZE + INV_CELL_MARGIN) * ceil(INV_COUNT / (float)columnSize) - INV_CELL_MARGIN)) * 0.5;
+
+	// printf("TEST nbrLine: %f\n", INV_COUNT / (float)columnSize);
+
+	for (int i = 0; i < INV_COUNT; i++)
 	{
-		for (float x = 0; x <= innerSize.x; x += innerSize.x / (INVENTORY_COLUMN_COUNT - 1))
-		{
-			Matrix4 xform = m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0.0f));
-			xform = m4_translate(xform, v3(x, y, 0.0f));
-			draw_rect_xform(xform, v2(3, 3), COLOR_RED);
-		}
+		Vector2 cellPos;
+		cellPos.x = origin.x + (i % columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN);
+		cellPos.y = innerSize.y - INV_CELL_SIZE - (i / columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN) - origin.y;
+
+		Matrix4 xform = m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0.0f));
+		xform = m4_translate(xform, v3(cellPos.x, cellPos.y, 0.0f));
+		draw_rect_xform(xform, v2(INV_CELL_SIZE, INV_CELL_SIZE), COLOR_RED);
+
+		// printf("CELL POS: x: %f, y: %f\n", cellPos.x, cellPos.y);
 	}
 }
 
 void addItemToInvetory(Entity *loot)
 {
 	// Searching for the item in the inventory
-	for (int i = 0; i < INVENTORY_COUNT; i++)
+	for (int i = 0; i < INV_COUNT; i++)
 	{
 		Item *curItem = &world->inventory[i];
 		if (curItem->type)
@@ -290,7 +310,7 @@ void addItemToInvetory(Entity *loot)
 			{
 				curItem->amount++;
 				destroyEntity(loot);
-				printf("Inventory ADD index: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
+				printf("Inventory ADD type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
 				return;
 			}
 
@@ -302,7 +322,7 @@ void addItemToInvetory(Entity *loot)
 		curItem->type = loot->lootType;
 		curItem->spriteId = loot->spriteId;
 		destroyEntity(loot);
-		printf("Inventory NEW index: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
+		printf("Inventory NEW type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
 		return;
 	}
 
