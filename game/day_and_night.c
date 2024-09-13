@@ -30,6 +30,7 @@ typedef enum EntityType
 
 typedef enum SpriteId
 {
+	SPRITE_nil,
 	SPRITE_player,
 	SPRITE_tree,
 	SPRITE_log,
@@ -49,6 +50,12 @@ typedef enum ItemType
 	ITEM_log3,
 	ITEM_MAX
 } ItemType;
+
+typedef enum UXState
+{
+	UX_nil,
+	UX_inventory,
+} UXState;
 
 #pragma endregion ENUM
 
@@ -83,6 +90,7 @@ typedef struct World
 	Entity entitites[MAX_ENTITIES_COUNT];
 	Entity *selectedEntity;
 	Item inventory[INV_COUNT];
+	UXState uxState;
 } World;
 
 typedef struct Sprite
@@ -100,6 +108,8 @@ Sprite item[ITEM_MAX];
 const int tileSize = 15;
 float camZoom = 5.0;
 float entitySelectionRadius = tileSize * 0.5f;
+
+Gfx_Font *font;
 
 #pragma endregion GLOBAL
 
@@ -282,8 +292,6 @@ void drawInventory()
 	origin.x = (innerSize.x - ((INV_CELL_SIZE + INV_CELL_MARGIN) * columnSize - INV_CELL_MARGIN)) * 0.5;
 	origin.y = (innerSize.y - ((INV_CELL_SIZE + INV_CELL_MARGIN) * ceil(INV_COUNT / (float)columnSize) - INV_CELL_MARGIN)) * 0.5;
 
-	// printf("TEST nbrLine: %f\n", INV_COUNT / (float)columnSize);
-
 	for (int i = 0; i < INV_COUNT; i++)
 	{
 		Vector2 cellPos;
@@ -294,7 +302,26 @@ void drawInventory()
 		xform = m4_translate(xform, v3(cellPos.x, cellPos.y, 0.0f));
 		draw_rect_xform(xform, v2(INV_CELL_SIZE, INV_CELL_SIZE), COLOR_RED);
 
-		// printf("CELL POS: x: %f, y: %f\n", cellPos.x, cellPos.y);
+		Item item = world->inventory[i];
+
+		if (item.type)
+		{
+			Gfx_Image *image = getSprite(item.spriteId)->image;
+			float innerSize = INV_CELL_SIZE * 0.75;
+			Vector2 itemScale = v2(innerSize / image->width, innerSize / image->height);
+			float smallestScale = min(itemScale.x, itemScale.y);
+			Vector2 finalSize = v2(smallestScale * image->width, smallestScale * image->height);
+
+			Vector2 itemCenterPos = v2_mulf(v2_sub(v2(INV_CELL_SIZE, INV_CELL_SIZE), finalSize), 0.5);
+
+			Matrix4 xform_item = m4_translate(xform, v3(itemCenterPos.x, itemCenterPos.y, 0.0));
+			draw_image_xform(image, m4_translate(xform_item, v3(0, -5, 0.0f)), finalSize, v4(0, 0, 0, 0.5));
+			draw_image_xform(image, xform_item, finalSize, COLOR_WHITE);
+
+			xform = m4_scale(xform, v3(0.5, 0.5, 1));
+			draw_text_xform(font, tprint("%ix", item.amount), 48, m4_translate(xform, v3(3, -3, 0)), v2(1, 1), COLOR_BLACK);
+			draw_text_xform(font, tprint("%ix", item.amount), 48, xform, v2(1, 1), COLOR_WHITE);
+		}
 	}
 }
 
@@ -409,15 +436,11 @@ int entry(int argc, char **argv)
 
 	float seconds_counter = 0.0;
 	s32 frame_count = 0;
-
 	float64 last_time = os_get_elapsed_seconds();
-
 	Vector2 camPos;
-
-	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
-	assert(font, "Failed loading arial.ttf");
-
 	Vector2 mousePosTile;
+	font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
+	assert(font, "Failed loading arial.ttf");
 
 #pragma endregion INIT
 
@@ -434,6 +457,10 @@ int entry(int argc, char **argv)
 
 		// Camera
 		camPos = lerp_v2(camPos, player->pos, dt * 10);
+		if (v2_length(v2_sub(player->pos, camPos)) < 0.01)
+		{
+			camPos = player->pos;
+		}
 		draw_frame.camera_xform = m4_make_scale(v3(1.0, 1.0, 1.0));
 		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_translation(v3(camPos.x, camPos.y, 0)));
 		draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0 / camZoom, 1.0 / camZoom, 1)));
@@ -472,6 +499,11 @@ int entry(int argc, char **argv)
 			window.should_close = true;
 		}
 
+		if (is_key_just_pressed('U'))
+		{
+			world->uxState = world->uxState == UX_inventory ? UX_nil : UX_inventory;
+		}
+
 		Vector2 input_axis = v2(0, 0);
 		if (is_key_down('J'))
 		{
@@ -506,7 +538,10 @@ int entry(int argc, char **argv)
 			}
 		}
 
-		drawInventory();
+		if (world->uxState == UX_inventory)
+		{
+			drawInventory();
+		}
 
 		gfx_update();
 
