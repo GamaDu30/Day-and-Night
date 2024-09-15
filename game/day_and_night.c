@@ -14,6 +14,7 @@
 #define INV_UI_HEIGHT 0.5
 #define INV_UI_INNER_MARGIN_X 0.15
 #define INV_UI_INNER_MARGIN_Y 0.25
+#define HOTBAR_AMOUNT 5
 
 #pragma endregion DEFINE
 
@@ -21,11 +22,11 @@
 
 typedef enum EntityType
 {
-	ENTITY_nil = 0,
-	ENTITY_mineral = 1,
-	ENTITY_tree = 2,
-	ENTITY_player = 3,
-	ENTITY_item = 4,
+	ENTITY_nil,
+	ENTITY_mineral,
+	ENTITY_tree,
+	ENTITY_player,
+	ENTITY_item,
 } EntityType;
 
 typedef enum SpriteId
@@ -56,6 +57,19 @@ typedef enum UXState
 	UX_nil,
 	UX_inventory,
 } UXState;
+
+typedef enum Pivot
+{
+	PIVOT_TOP_LEFT,
+	PIVOT_TOP_CENTER,
+	PIVOT_TOP_RIGHT,
+	PIVOT_CENTER_LEFT,
+	PIVOT_CENTER_CENTER,
+	PIVOT_CENTER_RIGHT,
+	PIVOT_BOT_LEFT,
+	PIVOT_BOT_CENTER,
+	PIVOT_BOT_RIGHT,
+} Pivot;
 
 #pragma endregion ENUM
 
@@ -90,13 +104,21 @@ typedef struct World
 	Entity entitites[MAX_ENTITIES_COUNT];
 	Entity *selectedEntity;
 	Item inventory[INV_COUNT];
+	Item hotbar[HOTBAR_AMOUNT];
 	UXState uxState;
 } World;
 
 typedef struct Sprite
 {
 	Gfx_Image *image;
+	Pivot pivot;
 } Sprite;
+
+typedef struct BoundingBox
+{
+	Vector2 min;
+	Vector2 max;
+} BoundingBox;
 
 #pragma endregion STRUCT
 
@@ -211,6 +233,11 @@ Vector2 tileToWorldPos(Vector2 tilePos)
 	return v2_mulf(tilePos, tileSize);
 }
 
+Vector2 getMousePosInNDC()
+{
+	return v2(input_frame.mouse_x / (window.width * 0.5) - 1.0f, input_frame.mouse_y / (window.height * 0.5) - 1.0f);
+}
+
 boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
 {
 	pos.x -= size.x * 0.5;
@@ -230,10 +257,47 @@ boolean colCircleCircle(Vector2 p1, float r1, Vector2 p2, float r2)
 	return dist < r1 + r2;
 }
 
+Vector2 getPivot(Pivot pivot)
+{
+	switch (pivot)
+	{
+	case PIVOT_BOT_LEFT:
+		return v2(0, 0);
+		break;
+	case PIVOT_BOT_CENTER:
+		return v2(0.5, 0);
+		break;
+	case PIVOT_BOT_RIGHT:
+		return v2(1, 0);
+		break;
+	case PIVOT_CENTER_LEFT:
+		return v2(0, 0.5);
+		break;
+	case PIVOT_CENTER_CENTER:
+		return v2(0.5, 0.5);
+		break;
+	case PIVOT_CENTER_RIGHT:
+		return v2(1, 0.5);
+		break;
+	case PIVOT_TOP_LEFT:
+		return v2(0, 1);
+		break;
+	case PIVOT_TOP_CENTER:
+		return v2(0.5, 1);
+		break;
+	case PIVOT_TOP_RIGHT:
+		return v2(1, 1);
+		break;
+	default:
+		assert(false, "getPivot: Provided pivot is not okay");
+		break;
+	}
+}
+
 void drawEntity(Entity *entity)
 {
-	Gfx_Image *image = getSprite(entity->spriteId)->image;
-	Vector2 size = v2(image->width, image->height);
+	Sprite *sprite = getSprite(entity->spriteId);
+	Vector2 size = v2(sprite->image->width, sprite->image->height);
 
 	Vector4 col = v4(1, 1, 1, 1);
 	if (entity == world->selectedEntity)
@@ -242,16 +306,22 @@ void drawEntity(Entity *entity)
 		col.b = 0.5f;
 	}
 
+	// Pos
 	Matrix4 xform = m4_scalar(1.0);
-	xform = m4_translate(xform, v3(entity->pos.x - size.x * 0.5, entity->pos.y, 0.0));
+	xform = m4_translate(xform, v3(entity->pos.x, entity->pos.y, 0.0));
 
+	// Pivot
+	Vector2 pivot = v2_mulf(getPivot(sprite->pivot), -1);
+	xform = m4_translate(xform, v3(pivot.x * size.x, pivot.y * size.y, 0));
+
+	// Item shadow
 	if (entity->type == ENTITY_item)
 	{
 		xform = m4_translate(xform, v3(0.0, sin(os_get_elapsed_seconds() * 3) + 4, 0.0));
-		draw_image_xform(image, m4_translate(xform, v3(0.0, -5.0, 0.0)), size, v4(0, 0, 0, 0.5));
+		draw_image_xform(sprite->image, m4_translate(xform, v3(0.0, -5.0, 0.0)), size, v4(0, 0, 0, 0.5));
 	}
 
-	draw_image_xform(image, xform, size, col);
+	draw_image_xform(sprite->image, xform, size, col);
 }
 
 void drawGround(Vector2 origin, Vector2 size)
@@ -276,11 +346,52 @@ void drawGround(Vector2 origin, Vector2 size)
 	}
 }
 
+void drawItemCell(Item *item, Matrix4 xformCell)
+{
+	// Cell
+	Draw_Quad *quad = draw_rect_xform(xformCell, v2(INV_CELL_SIZE, INV_CELL_SIZE), v4(0.5, 0.25, 0.5, 0.9));
+
+	if (!item->type)
+	{
+		return;
+	}
+
+	Vector2 mousePosNDC = getMousePosInNDC();
+	boolean hovered = mousePosNDC.x >= quad->bottom_left.x && mousePosNDC.x < quad->top_right.x && mousePosNDC.y >= quad->bottom_left.y && mousePosNDC.y < quad->top_right.y;
+
+	Sprite *sprite = getSprite(item->spriteId);
+	Vector2 imageSize = v2(sprite->image->width, sprite->image->height);
+	float innerSize = INV_CELL_SIZE * 0.75;
+	float smallestScale = min(innerSize / imageSize.x, innerSize / imageSize.y);
+	Vector2 finalSize = v2(smallestScale * imageSize.x, smallestScale * imageSize.y);
+
+	if (hovered)
+	{
+		finalSize = v2_mulf(finalSize, 1.25);
+	}
+
+	// Item
+	Matrix4 xform_item = m4_translate(xformCell, v3(INV_CELL_SIZE * 0.5, INV_CELL_SIZE * 0.5, 0.0));
+
+	// Pivot
+	Vector2 pivot = v2_mulf(getPivot(getSprite(item->spriteId)->pivot), -1);
+	xform_item = m4_translate(xform_item, v3(pivot.x * finalSize.x, pivot.y * finalSize.y, 0));
+
+	draw_image_xform(sprite->image, m4_translate(xform_item, v3(0, -5, 0.0f)), finalSize, v4(0, 0, 0, 0.5));
+	draw_image_xform(sprite->image, xform_item, finalSize, COLOR_WHITE);
+
+	// Amount text
+	Matrix4 xform_itemCount = m4_scale(xformCell, v3(0.5, 0.5, 1));
+	xform_itemCount = m4_translate(xform_itemCount, v3(INV_CELL_SIZE * 0.1, INV_CELL_SIZE * 0.1, 1));
+	draw_text_xform(font, tprint("%ix", item->amount), 48, m4_translate(xform_itemCount, v3(3, -3, 0)), v2(1, 1), COLOR_BLACK);
+	draw_text_xform(font, tprint("%ix", item->amount), 48, xform_itemCount, v2(1, 1), COLOR_WHITE);
+}
+
 void drawInventory()
 {
 	// Background
 	Vector2 inventoryGlobalSize = v2(window.width * INV_UI_WIDTH, window.height * INV_UI_HEIGHT);
-	draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-inventoryGlobalSize.x * 0.5f, -inventoryGlobalSize.y * 0.5f, 0)), inventoryGlobalSize, v4(0.25f, 0.25f, 0.25f, 0.8f));
+	draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-inventoryGlobalSize.x * 0.5f, -inventoryGlobalSize.y * 0.5f, 0)), inventoryGlobalSize, v4(0.25f, 0.25f, 0.25f, 0.9f));
 
 	Vector2 innerSize = v2_mul(inventoryGlobalSize, v2(1.0f - INV_UI_INNER_MARGIN_X, 1.0f - INV_UI_INNER_MARGIN_Y));
 	// draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0)), innerSize, v4(0.5f, 0.5f, 0.5f, 0.8f));
@@ -292,36 +403,28 @@ void drawInventory()
 	origin.x = (innerSize.x - ((INV_CELL_SIZE + INV_CELL_MARGIN) * columnSize - INV_CELL_MARGIN)) * 0.5;
 	origin.y = (innerSize.y - ((INV_CELL_SIZE + INV_CELL_MARGIN) * ceil(INV_COUNT / (float)columnSize) - INV_CELL_MARGIN)) * 0.5;
 
+	Matrix4 xform_inner = m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0.0f));
+
 	for (int i = 0; i < INV_COUNT; i++)
 	{
 		Vector2 cellPos;
 		cellPos.x = origin.x + (i % columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN);
 		cellPos.y = innerSize.y - INV_CELL_SIZE - (i / columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN) - origin.y;
 
-		Matrix4 xform = m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0.0f));
-		xform = m4_translate(xform, v3(cellPos.x, cellPos.y, 0.0f));
-		draw_rect_xform(xform, v2(INV_CELL_SIZE, INV_CELL_SIZE), COLOR_RED);
+		drawItemCell(&world->inventory[i], m4_translate(xform_inner, v3(cellPos.x, cellPos.y, 0.0f)));
+	}
+}
 
-		Item item = world->inventory[i];
+void drawHotBar()
+{
+	float hotBarWidth = (INV_CELL_SIZE + INV_CELL_MARGIN) * HOTBAR_AMOUNT - INV_CELL_MARGIN;
 
-		if (item.type)
-		{
-			Gfx_Image *image = getSprite(item.spriteId)->image;
-			float innerSize = INV_CELL_SIZE * 0.75;
-			Vector2 itemScale = v2(innerSize / image->width, innerSize / image->height);
-			float smallestScale = min(itemScale.x, itemScale.y);
-			Vector2 finalSize = v2(smallestScale * image->width, smallestScale * image->height);
+	Matrix4 xformHotBar = m4_translate(draw_frame.camera_xform, v3(-hotBarWidth * 0.5, -window.height * 0.45, 0));
 
-			Vector2 itemCenterPos = v2_mulf(v2_sub(v2(INV_CELL_SIZE, INV_CELL_SIZE), finalSize), 0.5);
-
-			Matrix4 xform_item = m4_translate(xform, v3(itemCenterPos.x, itemCenterPos.y, 0.0));
-			draw_image_xform(image, m4_translate(xform_item, v3(0, -5, 0.0f)), finalSize, v4(0, 0, 0, 0.5));
-			draw_image_xform(image, xform_item, finalSize, COLOR_WHITE);
-
-			xform = m4_scale(xform, v3(0.5, 0.5, 1));
-			draw_text_xform(font, tprint("%ix", item.amount), 48, m4_translate(xform, v3(3, -3, 0)), v2(1, 1), COLOR_BLACK);
-			draw_text_xform(font, tprint("%ix", item.amount), 48, xform, v2(1, 1), COLOR_WHITE);
-		}
+	for (int i = 0; i < HOTBAR_AMOUNT; i++)
+	{
+		drawItemCell(&world->hotbar[i], xformHotBar);
+		xformHotBar = m4_translate(xformHotBar, v3(INV_CELL_SIZE + INV_CELL_MARGIN, 0, 0));
 	}
 }
 
@@ -337,7 +440,7 @@ void addItemToInvetory(Entity *loot)
 			{
 				curItem->amount++;
 				destroyEntity(loot);
-				printf("Inventory ADD type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
+				// printf("Inventory ADD type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
 				return;
 			}
 
@@ -349,12 +452,12 @@ void addItemToInvetory(Entity *loot)
 		curItem->type = loot->lootType;
 		curItem->spriteId = loot->spriteId;
 		destroyEntity(loot);
-		printf("Inventory NEW type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
+		// printf("Inventory NEW type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
 		return;
 	}
 
 	// Inventory is full
-	printf("Inventory No space available\n");
+	// printf("Inventory No space available\n");
 }
 
 void manageMouseClick()
@@ -386,9 +489,9 @@ void manageMouseClick()
 	}
 }
 
-void createSprite(SpriteId spriteId, string path)
+void createSprite(SpriteId spriteId, string path, Pivot pivot)
 {
-	sprites[spriteId] = (Sprite){.image = load_image_from_disk(path, get_heap_allocator())};
+	sprites[spriteId] = (Sprite){.image = load_image_from_disk(path, get_heap_allocator()), .pivot = pivot};
 }
 
 #pragma endregion FUNCTION
@@ -403,13 +506,14 @@ int entry(int argc, char **argv)
 	window.x = (1920 - window.width) / 2;
 	window.y = (1080 - window.height) / 2;
 	window.clear_color = hex_to_rgba(0x2A2A38ff);
+	window.force_topmost = false;
 
 #pragma region INIT
-	createSprite(SPRITE_player, STR("assets/images/player.png"));
-	createSprite(SPRITE_tree, STR("assets/images/ressource_tree0.png"));
-	createSprite(SPRITE_log, STR("assets/images/item_tree0.png"));
-	createSprite(SPRITE_mineral, STR("assets/images/ressource_mineral0.png"));
-	createSprite(SPRITE_iron, STR("assets/images/item_mineral0.png"));
+	createSprite(SPRITE_player, STR("assets/images/player.png"), PIVOT_BOT_CENTER);
+	createSprite(SPRITE_tree, STR("assets/images/ressource_tree0.png"), PIVOT_BOT_CENTER);
+	createSprite(SPRITE_log, STR("assets/images/item_tree0.png"), PIVOT_CENTER_CENTER);
+	createSprite(SPRITE_mineral, STR("assets/images/ressource_mineral0.png"), PIVOT_BOT_CENTER);
+	createSprite(SPRITE_iron, STR("assets/images/item_mineral0.png"), PIVOT_CENTER_CENTER);
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 
@@ -420,7 +524,7 @@ int entry(int argc, char **argv)
 	{
 		Vector2 pos = v2(get_random_int_in_range(-5, 5), get_random_int_in_range(-5, 5));
 		pos = tileToWorldPos(pos);
-		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
+		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.5f));
 		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral, pos, 0);
 		mineral->health = 5;
 	}
@@ -543,6 +647,8 @@ int entry(int argc, char **argv)
 			drawInventory();
 		}
 
+		drawHotBar();
+
 		gfx_update();
 
 		// FPS
@@ -550,7 +656,7 @@ int entry(int argc, char **argv)
 		frame_count++;
 		if (seconds_counter > 1.0)
 		{
-			// log("fps: %i", frame_count);
+			log("fps: %i", frame_count);
 			seconds_counter = 0.0;
 			frame_count = 0;
 		}
