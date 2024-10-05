@@ -4,9 +4,7 @@
 #define MAX_IMAGES_COUNT 1024
 #define MAX_ITEMS_COUNT 1024
 
-#define INV_COLUMN_COUNT 5
-#define INV_LINE_COUNT 3
-#define INV_COUNT (INV_COLUMN_COUNT * INV_LINE_COUNT)
+#define INV_COUNT 15
 #define STACK_SIZE 64
 #define INV_CELL_MARGIN 8
 #define INV_CELL_SIZE 64
@@ -18,115 +16,25 @@
 
 #pragma endregion DEFINE
 
+#pragma region INCLUDE
+
+#include "game/sprite.c"
+#include "game/item.c"
+#include "game/entity.c"
+#include "game/item.c"
+
+#pragma endregion INCLUDE
+
 #pragma region ENUM
-
-typedef enum EntityType
-{
-	ENTITY_nil,
-	ENTITY_mineral,
-	ENTITY_tree,
-	ENTITY_player,
-	ENTITY_item,
-} EntityType;
-
-typedef enum SpriteId
-{
-	SPRITE_nil,
-	SPRITE_player,
-	SPRITE_tree,
-	SPRITE_log,
-	SPRITE_mineral,
-	SPRITE_iron,
-	SPRITE_MAX
-} SpriteId;
-
-typedef enum ItemType
-{
-	ITEM_nil,
-	ITEM_mineral1,
-	ITEM_log1,
-	ITEM_mineral2,
-	ITEM_log2,
-	ITEM_mineral3,
-	ITEM_log3,
-	ITEM_MAX
-} ItemType;
-
-typedef enum UXState
-{
-	UX_nil,
-	UX_inventory,
-} UXState;
-
-typedef enum Pivot
-{
-	PIVOT_TOP_LEFT,
-	PIVOT_TOP_CENTER,
-	PIVOT_TOP_RIGHT,
-	PIVOT_CENTER_LEFT,
-	PIVOT_CENTER_CENTER,
-	PIVOT_CENTER_RIGHT,
-	PIVOT_BOT_LEFT,
-	PIVOT_BOT_CENTER,
-	PIVOT_BOT_RIGHT,
-} Pivot;
 
 #pragma endregion ENUM
 
 #pragma region STRUCT
 
-typedef struct Entity
-{
-	bool isValid;
-	EntityType type;
-	Vector2 pos;
-
-	SpriteId spriteId;
-
-	int health;
-	bool isDestroyable;
-	bool isSelectable;
-	bool isPickable;
-	ItemType lootType;
-	SpriteId lootSpriteId;
-} Entity;
-
-typedef struct Item
-{
-	ItemType type;
-	SpriteId spriteId;
-	int amount;
-	Vector2 pos;
-} Item;
-
-typedef struct World
-{
-	Entity entitites[MAX_ENTITIES_COUNT];
-	Entity *selectedEntity;
-	Item inventory[INV_COUNT];
-	Item hotbar[HOTBAR_AMOUNT];
-	UXState uxState;
-} World;
-
-typedef struct Sprite
-{
-	Gfx_Image *image;
-	Pivot pivot;
-} Sprite;
-
-typedef struct BoundingBox
-{
-	Vector2 min;
-	Vector2 max;
-} BoundingBox;
-
 #pragma endregion STRUCT
 
 #pragma region GLOBAL
 
-World *world = 0;
-Sprite sprites[SPRITE_MAX];
-Sprite item[ITEM_MAX];
 const int tileSize = 15;
 float camZoom = 5.0;
 float entitySelectionRadius = tileSize * 0.5f;
@@ -136,72 +44,6 @@ Gfx_Font *font;
 #pragma endregion GLOBAL
 
 #pragma region FUNCTION
-
-Entity *entityCreate(EntityType type, SpriteId spriteId, Vector2 pos, ItemType itemType)
-{
-	Entity *entityFound = 0;
-	for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
-	{
-		Entity *curEntity = &world->entitites[i];
-		if (!curEntity->isValid)
-		{
-			entityFound = curEntity;
-			break;
-		}
-	}
-
-	assert(entityFound, "entityCreate: No entity found");
-	entityFound->isValid = true;
-	entityFound->pos = pos;
-	entityFound->spriteId = spriteId;
-	entityFound->type = type;
-
-	switch (type)
-	{
-	case ENTITY_player:
-		entityFound->isDestroyable = false;
-		entityFound->isSelectable = false;
-		break;
-	case ENTITY_mineral:
-		entityFound->isDestroyable = true;
-		entityFound->isSelectable = true;
-		entityFound->lootType = ITEM_mineral1;
-		entityFound->lootSpriteId = SPRITE_iron;
-		break;
-	case ENTITY_tree:
-		entityFound->isDestroyable = true;
-		entityFound->isSelectable = true;
-		entityFound->lootType = ITEM_log1;
-		entityFound->lootSpriteId = SPRITE_log;
-		break;
-	case ENTITY_item:
-		entityFound->isDestroyable = false;
-		entityFound->isSelectable = true;
-		entityFound->isPickable = true;
-		entityFound->lootType = itemType;
-		break;
-	default:
-		break;
-	}
-
-	return entityFound;
-}
-
-void destroyEntity(Entity *entity)
-{
-	entity->isValid = false;
-	memset(entity, 0, sizeof(Entity));
-}
-
-Sprite *getSprite(SpriteId spriteId)
-{
-	if (spriteId >= 0 && spriteId < SPRITE_MAX)
-	{
-		return &sprites[spriteId];
-	}
-
-	assert(false, "getSprite: no sprite found");
-}
 
 float lerp_f(float a, float b, float t)
 {
@@ -257,73 +99,6 @@ boolean colCircleCircle(Vector2 p1, float r1, Vector2 p2, float r2)
 	return dist < r1 + r2;
 }
 
-Vector2 getPivot(Pivot pivot)
-{
-	switch (pivot)
-	{
-	case PIVOT_BOT_LEFT:
-		return v2(0, 0);
-		break;
-	case PIVOT_BOT_CENTER:
-		return v2(0.5, 0);
-		break;
-	case PIVOT_BOT_RIGHT:
-		return v2(1, 0);
-		break;
-	case PIVOT_CENTER_LEFT:
-		return v2(0, 0.5);
-		break;
-	case PIVOT_CENTER_CENTER:
-		return v2(0.5, 0.5);
-		break;
-	case PIVOT_CENTER_RIGHT:
-		return v2(1, 0.5);
-		break;
-	case PIVOT_TOP_LEFT:
-		return v2(0, 1);
-		break;
-	case PIVOT_TOP_CENTER:
-		return v2(0.5, 1);
-		break;
-	case PIVOT_TOP_RIGHT:
-		return v2(1, 1);
-		break;
-	default:
-		assert(false, "getPivot: Provided pivot is not okay");
-		break;
-	}
-}
-
-void drawEntity(Entity *entity)
-{
-	Sprite *sprite = getSprite(entity->spriteId);
-	Vector2 size = v2(sprite->image->width, sprite->image->height);
-
-	Vector4 col = v4(1, 1, 1, 1);
-	if (entity == world->selectedEntity)
-	{
-		col.g = 0.5f;
-		col.b = 0.5f;
-	}
-
-	// Pos
-	Matrix4 xform = m4_scalar(1.0);
-	xform = m4_translate(xform, v3(entity->pos.x, entity->pos.y, 0.0));
-
-	// Pivot
-	Vector2 pivot = v2_mulf(getPivot(sprite->pivot), -1);
-	xform = m4_translate(xform, v3(pivot.x * size.x, pivot.y * size.y, 0));
-
-	// Item shadow
-	if (entity->type == ENTITY_item)
-	{
-		xform = m4_translate(xform, v3(0.0, sin(os_get_elapsed_seconds() * 3) + 4, 0.0));
-		draw_image_xform(sprite->image, m4_translate(xform, v3(0.0, -5.0, 0.0)), size, v4(0, 0, 0, 0.5));
-	}
-
-	draw_image_xform(sprite->image, xform, size, col);
-}
-
 void drawGround(Vector2 origin, Vector2 size)
 {
 	Vector2 tilePos = worldToTilePos(origin);
@@ -346,6 +121,44 @@ void drawGround(Vector2 origin, Vector2 size)
 	}
 }
 
+void addItemToInventory(ItemType type)
+{
+	// Searching for the item in the inventory
+	for (int i = 0; i < INV_COUNT; i++)
+	{
+		Item *curItem = &world->inventory[i];
+		if (curItem->type)
+		{
+			if (curItem->type == type && curItem->amount < STACK_SIZE)
+			{
+				curItem->amount++;
+				return;
+			}
+
+			continue;
+		}
+
+		// Item not present in inventory OR stack limit reached
+		curItem->type = type;
+		curItem->amount = 1;
+		return;
+	}
+
+	// Inventory is full
+	// printf("Inventory No space available\n");
+}
+
+void removeItemFromInventory(Item *item)
+{
+	for (int i = 0; i < INV_COUNT; i++)
+	{
+		if (&world->inventory[i] == item)
+		{
+			world->inventory[i].type = 0;
+		}
+	}
+}
+
 void drawItemCell(Item *item, Matrix4 xformCell)
 {
 	// Cell
@@ -359,7 +172,7 @@ void drawItemCell(Item *item, Matrix4 xformCell)
 	Vector2 mousePosNDC = getMousePosInNDC();
 	boolean hovered = mousePosNDC.x >= quad->bottom_left.x && mousePosNDC.x < quad->top_right.x && mousePosNDC.y >= quad->bottom_left.y && mousePosNDC.y < quad->top_right.y;
 
-	Sprite *sprite = getSprite(item->spriteId);
+	Sprite *sprite = getSpriteFromId(itemsData[item->type].spriteId);
 	Vector2 imageSize = v2(sprite->image->width, sprite->image->height);
 	float innerSize = INV_CELL_SIZE * 0.75;
 	float smallestScale = min(innerSize / imageSize.x, innerSize / imageSize.y);
@@ -368,13 +181,32 @@ void drawItemCell(Item *item, Matrix4 xformCell)
 	if (hovered)
 	{
 		finalSize = v2_mulf(finalSize, 1.25);
+
+		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
+		{
+			if (!world->heldItem)
+			{
+				world->heldItem = item;
+				removeItemFromInventory(item);
+			}
+			else
+			{
+				addItemToInventory(world->heldItem->type);
+				world->heldItem = 0;
+			}
+		}
+
+		if (is_key_just_pressed(MOUSE_BUTTON_RIGHT))
+		{
+			world->heldItem = item;
+		}
 	}
 
 	// Item
 	Matrix4 xform_item = m4_translate(xformCell, v3(INV_CELL_SIZE * 0.5, INV_CELL_SIZE * 0.5, 0.0));
 
 	// Pivot
-	Vector2 pivot = v2_mulf(getPivot(getSprite(item->spriteId)->pivot), -1);
+	Vector2 pivot = v2_mulf(getPivot(sprites[getItemSpriteId(item->type)].pivot), -1);
 	xform_item = m4_translate(xform_item, v3(pivot.x * finalSize.x, pivot.y * finalSize.y, 0));
 
 	draw_image_xform(sprite->image, m4_translate(xform_item, v3(0, -5, 0.0f)), finalSize, v4(0, 0, 0, 0.5));
@@ -428,70 +260,37 @@ void drawHotBar()
 	}
 }
 
-void addItemToInvetory(Entity *loot)
+void checkMouseClickEntity()
 {
-	// Searching for the item in the inventory
-	for (int i = 0; i < INV_COUNT; i++)
+	if (world->selectedEntity)
 	{
-		Item *curItem = &world->inventory[i];
-		if (curItem->type)
-		{
-			if (curItem->type == loot->lootType && curItem->amount < STACK_SIZE)
-			{
-				curItem->amount++;
-				destroyEntity(loot);
-				// printf("Inventory ADD type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
-				return;
-			}
+		Entity *selectedEntity = world->selectedEntity;
 
-			continue;
-		}
-
-		// Item not present in inventory OR stack limit reached
-		curItem->amount = 1;
-		curItem->type = loot->lootType;
-		curItem->spriteId = loot->spriteId;
-		destroyEntity(loot);
-		// printf("Inventory NEW type: %d, amount: %d at index: %d\n", curItem->type, curItem->amount, i);
-		return;
-	}
-
-	// Inventory is full
-	// printf("Inventory No space available\n");
-}
-
-void manageMouseClick()
-{
-	Entity *selectedEntity = world->selectedEntity;
-
-	if (selectedEntity)
-	{
-		if (selectedEntity->isDestroyable)
+		EntityData *entityData = getEntityData(selectedEntity->type);
+		if (entityData->isDestroyable)
 		{
 			selectedEntity->health--;
 			play_one_audio_clip(STR("assets/sounds/EntityHit.wav"));
 
 			if (selectedEntity->health <= 0)
 			{
-				if (selectedEntity->lootType)
+				if (entityData->lootType)
 				{
-					entityCreate(ENTITY_item, selectedEntity->lootSpriteId, selectedEntity->pos, selectedEntity->lootType);
+					Entity *newEntity = createEntity();
+					setupEntity(newEntity, ENTITY_item, selectedEntity->pos);
+					newEntity->itemType = entityData->lootType;
 				}
 
 				play_one_audio_clip(STR("assets/sounds/EntityDestroy.wav"));
 				destroyEntity(selectedEntity);
 			}
 		}
-		else if (selectedEntity->isPickable)
+		else if (entityData->isPickable)
 		{
-			addItemToInvetory(selectedEntity);
+			addItemToInventory(entityData->lootType);
+			destroyEntity(selectedEntity);
 		}
 	}
-}
-
-void createSprite(SpriteId spriteId, string path, Pivot pivot)
-{
-	sprites[spriteId] = (Sprite){.image = load_image_from_disk(path, get_heap_allocator()), .pivot = pivot};
 }
 
 #pragma endregion FUNCTION
@@ -509,23 +308,24 @@ int entry(int argc, char **argv)
 	window.force_topmost = false;
 
 #pragma region INIT
-	createSprite(SPRITE_player, STR("assets/images/player.png"), PIVOT_BOT_CENTER);
-	createSprite(SPRITE_tree, STR("assets/images/ressource_tree0.png"), PIVOT_BOT_CENTER);
-	createSprite(SPRITE_log, STR("assets/images/item_tree0.png"), PIVOT_CENTER_CENTER);
-	createSprite(SPRITE_mineral, STR("assets/images/ressource_mineral0.png"), PIVOT_BOT_CENTER);
-	createSprite(SPRITE_iron, STR("assets/images/item_mineral0.png"), PIVOT_CENTER_CENTER);
-
 	world = alloc(get_heap_allocator(), sizeof(World));
 
-	Entity *player = entityCreate(ENTITY_player, SPRITE_player, v2(0, 0), 0);
+	initSprites();
+	initItems();
+	initEntity();
+
+	Entity *player = createEntity();
+	setupEntity(player, ENTITY_player, v2(0, 0));
 	player->health = 100;
 
 	for (int i = 0; i < 10; i++)
 	{
 		Vector2 pos = v2(get_random_int_in_range(-5, 5), get_random_int_in_range(-5, 5));
 		pos = tileToWorldPos(pos);
-		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.5f));
-		Entity *mineral = entityCreate(ENTITY_mineral, SPRITE_mineral, pos, 0);
+		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
+		Entity *mineral = createEntity();
+		setupEntity(mineral, ENTITY_mineral, pos);
+
 		mineral->health = 5;
 	}
 
@@ -534,14 +334,15 @@ int entry(int argc, char **argv)
 		Vector2 pos = v2(get_random_int_in_range(-10, 10), get_random_int_in_range(-10, 10));
 		pos = tileToWorldPos(pos);
 		pos = v2_add(pos, v2(tileSize * 0.5f, tileSize * 0.25f));
-		Entity *tree = entityCreate(ENTITY_tree, SPRITE_tree, pos, 0);
+		Entity *tree = createEntity();
+		setupEntity(tree, ENTITY_tree, pos);
 		tree->health = 5;
 	}
 
 	float seconds_counter = 0.0;
 	s32 frame_count = 0;
 	float64 last_time = os_get_elapsed_seconds();
-	Vector2 camPos;
+	Vector2 camPos = v2(0, 0);
 	Vector2 mousePosTile;
 	font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
 	assert(font, "Failed loading arial.ttf");
@@ -580,7 +381,8 @@ int entry(int argc, char **argv)
 		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
 		{
 			Entity *curEntity = &world->entitites[i];
-			if (curEntity->isValid && curEntity->isSelectable)
+			EntityData *entityData = getEntityData(curEntity->type);
+			if (curEntity->isValid && entityData->isSelectable)
 			{
 				float distCur = v2_length(v2_sub(v2_add(curEntity->pos, v2(0, tileSize * 0.25f)), mouseWorld));
 				if (distCur < entitySelectionRadius && distCur < distMin)
@@ -594,8 +396,8 @@ int entry(int argc, char **argv)
 		// Mouse Click
 		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
 		{
-			consume_key_just_pressed(MOUSE_BUTTON_LEFT);
-			manageMouseClick();
+			// consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+			checkMouseClickEntity();
 		}
 
 		if (is_key_just_pressed(KEY_ESCAPE))
