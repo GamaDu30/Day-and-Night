@@ -23,6 +23,7 @@ typedef struct Item
 {
     ItemType type;
     int amount;
+    bool grabbed;
 } Item;
 
 void initItems()

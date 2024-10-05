@@ -48,6 +48,7 @@ typedef struct World
     Item inventory[INV_COUNT];
     Item hotbar[HOTBAR_AMOUNT];
     Item *heldItem;
+    int heldItemOriginId;
     UXState uxState;
 } World;
 

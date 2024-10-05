@@ -82,7 +82,6 @@ Vector2 getMousePosInNDC()
 
 boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
 {
-	pos.x -= size.x * 0.5;
 	boolean res = point.x > pos.x &&
 				  point.x < pos.x + size.x &&
 				  point.y > pos.y &&
@@ -121,31 +120,44 @@ void drawGround(Vector2 origin, Vector2 size)
 	}
 }
 
-void addItemToInventory(ItemType type)
+bool addItemToInventoryAtIndex(ItemType type, int id)
+{
+	Item *curItem = &world->inventory[id];
+	if (curItem->type)
+	{
+		if (curItem->type == type && curItem->amount < STACK_SIZE)
+		{
+			// Item already present, we add amount
+			curItem->amount++;
+			return true;
+		}
+		else
+		{
+			// Can't place, items are different type
+			return false;
+		}
+	}
+
+	// Current inventory cell is empty
+	curItem->type = type;
+	curItem->amount = 1;
+	curItem->grabbed = false;
+	return true;
+}
+
+bool addItemToInventory(ItemType type)
 {
 	// Searching for the item in the inventory
 	for (int i = 0; i < INV_COUNT; i++)
 	{
-		Item *curItem = &world->inventory[i];
-		if (curItem->type)
+		if (addItemToInventoryAtIndex(type, i))
 		{
-			if (curItem->type == type && curItem->amount < STACK_SIZE)
-			{
-				curItem->amount++;
-				return;
-			}
-
-			continue;
+			return true;
 		}
-
-		// Item not present in inventory OR stack limit reached
-		curItem->type = type;
-		curItem->amount = 1;
-		return;
 	}
 
 	// Inventory is full
-	// printf("Inventory No space available\n");
+	return false;
 }
 
 void removeItemFromInventory(Item *item)
@@ -159,47 +171,64 @@ void removeItemFromInventory(Item *item)
 	}
 }
 
-void drawItemCell(Item *item, Matrix4 xformCell)
+void drawItemCell(Item *item, Matrix4 xformCell, int id)
 {
 	// Cell
 	Draw_Quad *quad = draw_rect_xform(xformCell, v2(INV_CELL_SIZE, INV_CELL_SIZE), v4(0.5, 0.25, 0.5, 0.9));
+	Vector2 finalSize = v2(INV_CELL_SIZE, INV_CELL_SIZE);
 
+	// Mouse click detection
+	Vector2 mousePosNDC = getMousePosInNDC();
+	boolean hovered = colAABBPoint(quad->bottom_left, v2(quad->top_right.x - quad->bottom_left.x, quad->top_right.y - quad->bottom_left.y), mousePosNDC);
+
+	if (hovered)
+	{
+		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
+		{
+			if (!world->heldItem)
+			{
+				if (item->type)
+				{
+					world->heldItem = item;
+					world->heldItem->grabbed = true;
+					world->heldItemOriginId = id;
+				}
+			}
+			else
+			{
+				if (world->heldItem == item)
+				{
+					world->heldItem->grabbed = false;
+					world->heldItem = 0;
+				}
+				else
+				{
+					Item *itemTemp = item;
+					addItemToInventoryAtIndex(world->heldItem->type, id);
+					world->heldItem = itemTemp;
+					world->heldItem->grabbed = false;
+					world->heldItem = 0;
+					world->inventory[world->heldItemOriginId].type = 0;
+				}
+			}
+		}
+	}
+
+	// If there is no item, there is no need to draw
 	if (!item->type)
 	{
 		return;
 	}
 
-	Vector2 mousePosNDC = getMousePosInNDC();
-	boolean hovered = mousePosNDC.x >= quad->bottom_left.x && mousePosNDC.x < quad->top_right.x && mousePosNDC.y >= quad->bottom_left.y && mousePosNDC.y < quad->top_right.y;
-
 	Sprite *sprite = getSpriteFromId(itemsData[item->type].spriteId);
 	Vector2 imageSize = v2(sprite->image->width, sprite->image->height);
 	float innerSize = INV_CELL_SIZE * 0.75;
 	float smallestScale = min(innerSize / imageSize.x, innerSize / imageSize.y);
-	Vector2 finalSize = v2(smallestScale * imageSize.x, smallestScale * imageSize.y);
+	finalSize = v2(smallestScale * imageSize.x, smallestScale * imageSize.y);
 
 	if (hovered)
 	{
 		finalSize = v2_mulf(finalSize, 1.25);
-
-		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
-		{
-			if (!world->heldItem)
-			{
-				world->heldItem = item;
-				removeItemFromInventory(item);
-			}
-			else
-			{
-				addItemToInventory(world->heldItem->type);
-				world->heldItem = 0;
-			}
-		}
-
-		if (is_key_just_pressed(MOUSE_BUTTON_RIGHT))
-		{
-			world->heldItem = item;
-		}
 	}
 
 	// Item
@@ -210,7 +239,7 @@ void drawItemCell(Item *item, Matrix4 xformCell)
 	xform_item = m4_translate(xform_item, v3(pivot.x * finalSize.x, pivot.y * finalSize.y, 0));
 
 	draw_image_xform(sprite->image, m4_translate(xform_item, v3(0, -5, 0.0f)), finalSize, v4(0, 0, 0, 0.5));
-	draw_image_xform(sprite->image, xform_item, finalSize, COLOR_WHITE);
+	draw_image_xform(sprite->image, xform_item, finalSize, item->grabbed ? v4(1, 1, 1, 0.5) : COLOR_WHITE);
 
 	// Amount text
 	Matrix4 xform_itemCount = m4_scale(xformCell, v3(0.5, 0.5, 1));
@@ -243,7 +272,7 @@ void drawInventory()
 		cellPos.x = origin.x + (i % columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN);
 		cellPos.y = innerSize.y - INV_CELL_SIZE - (i / columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN) - origin.y;
 
-		drawItemCell(&world->inventory[i], m4_translate(xform_inner, v3(cellPos.x, cellPos.y, 0.0f)));
+		drawItemCell(&world->inventory[i], m4_translate(xform_inner, v3(cellPos.x, cellPos.y, 0.0f)), i);
 	}
 }
 
@@ -255,7 +284,7 @@ void drawHotBar()
 
 	for (int i = 0; i < HOTBAR_AMOUNT; i++)
 	{
-		drawItemCell(&world->hotbar[i], xformHotBar);
+		drawItemCell(&world->hotbar[i], xformHotBar, i);
 		xformHotBar = m4_translate(xformHotBar, v3(INV_CELL_SIZE + INV_CELL_MARGIN, 0, 0));
 	}
 }
@@ -287,7 +316,7 @@ void checkMouseClickEntity()
 		}
 		else if (entityData->isPickable)
 		{
-			addItemToInventory(entityData->lootType);
+			addItemToInventory(selectedEntity->itemType);
 			destroyEntity(selectedEntity);
 		}
 	}
