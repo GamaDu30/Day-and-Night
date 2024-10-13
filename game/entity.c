@@ -14,12 +14,12 @@ typedef struct Entity
 {
     bool isValid;
 
-    EntityType type;
+    EntityType entityType;
+    ItemType itemType;
+    SpriteId spriteId;
 
     Vector2 pos;
     int health;
-
-    ItemType itemType;
 } Entity;
 
 typedef struct EntityData
@@ -45,7 +45,7 @@ typedef struct World
 {
     Entity entitites[MAX_ENTITIES_COUNT];
     Entity *selectedEntity;
-    Item inventory[INV_COUNT];
+    Item *inventory[INV_COUNT];
     Item hotbar[HOTBAR_AMOUNT];
     Item *heldItem;
     int heldItemOriginId;
@@ -89,7 +89,16 @@ Entity *createEntity()
 void setupEntity(Entity *entity, EntityType type, Vector2 pos)
 {
     entity->pos = pos;
-    entity->type = type;
+    entity->entityType = type;
+
+    if (type != ENTITY_item)
+    {
+        entity->spriteId = getEntityData(type)->spriteId;
+    }
+    else
+    {
+        entity->spriteId = getItemData(entity->itemType).spriteId;
+    }
 }
 
 void destroyEntity(Entity *entity)
@@ -100,11 +109,8 @@ void destroyEntity(Entity *entity)
 
 void drawEntity(Entity *entity)
 {
-    EntityData *data = getEntityData(entity->type);
-
-    SpriteId spriteId = entity->type == ENTITY_item ? getItemSpriteId(entity->itemType) : data->spriteId;
-    Sprite *sprite = getSpriteFromId(spriteId);
-    Vector2 size = getspriteSize(spriteId);
+    Sprite *sprite = getSpriteFromId(entity->spriteId);
+    Vector2 size = getspriteSize(entity->spriteId);
 
     // Selection color
     Vector4 col = v4(1, 1, 1, 1);
@@ -123,7 +129,7 @@ void drawEntity(Entity *entity)
     xform = m4_translate(xform, v3(pivot.x * size.x, pivot.y * size.y, 0));
 
     // Item shadow
-    if (entity->type == ENTITY_item)
+    if (entity->entityType == ENTITY_item)
     {
         xform = m4_translate(xform, v3(0.0, sin(os_get_elapsed_seconds() * 3) + 4, 0.0));
         draw_image_xform(sprite->image, m4_translate(xform, v3(0.0, -5.0, 0.0)), size, v4(0, 0, 0, 0.5));

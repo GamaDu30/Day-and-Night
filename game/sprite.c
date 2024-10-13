@@ -99,10 +99,9 @@ void initSprites()
     createSprite(SPRITE_ITEM_iron, STR("assets/images/item_mineral0.png"), PIVOT_CENTER_CENTER);
 }
 
-void drawSprite(SpriteId spriteId, Matrix4 xform, Vector4 color)
+void drawSprite(SpriteId spriteId, Matrix4 xform, Vector2 size, Vector4 color)
 {
     Sprite *sprite = getSpriteFromId(spriteId);
-    Vector2 size = getspriteSize(spriteId);
 
     Vector2 pivot = v2_mulf(getPivot(sprite->pivot), -1);
     xform = m4_translate(xform, v3(pivot.x * size.x, pivot.y * size.y, 0));

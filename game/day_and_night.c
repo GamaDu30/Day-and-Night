@@ -122,8 +122,8 @@ void drawGround(Vector2 origin, Vector2 size)
 
 bool addItemToInventoryAtIndex(ItemType type, int id)
 {
-	Item *curItem = &world->inventory[id];
-	if (curItem->type)
+	Item *curItem = world->inventory[id];
+	if (curItem != NULL)
 	{
 		if (curItem->type == type && curItem->amount < STACK_SIZE)
 		{
@@ -139,9 +139,9 @@ bool addItemToInventoryAtIndex(ItemType type, int id)
 	}
 
 	// Current inventory cell is empty
+	curItem = new Item();
 	curItem->type = type;
 	curItem->amount = 1;
-	curItem->grabbed = false;
 	return true;
 }
 
@@ -164,9 +164,9 @@ void removeItemFromInventory(Item *item)
 {
 	for (int i = 0; i < INV_COUNT; i++)
 	{
-		if (&world->inventory[i] == item)
+		if (world->inventory[i] == item)
 		{
-			world->inventory[i].type = 0;
+			world->inventory[i]->type = 0;
 		}
 	}
 }
@@ -181,36 +181,41 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 	Vector2 mousePosNDC = getMousePosInNDC();
 	boolean hovered = colAABBPoint(quad->bottom_left, v2(quad->top_right.x - quad->bottom_left.x, quad->top_right.y - quad->bottom_left.y), mousePosNDC);
 
+	// Mouse click check
 	if (hovered)
 	{
 		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
 		{
-			if (!world->heldItem)
+			if (!world->heldItem->type)
 			{
-				if (item->type)
-				{
-					world->heldItem = item;
-					world->heldItem->grabbed = true;
-					world->heldItemOriginId = id;
-				}
+				world->heldItem = item;
+				world->inventory[id] = 0;
 			}
-			else
-			{
-				if (world->heldItem == item)
-				{
-					world->heldItem->grabbed = false;
-					world->heldItem = 0;
-				}
-				else
-				{
-					Item *itemTemp = item;
-					addItemToInventoryAtIndex(world->heldItem->type, id);
-					world->heldItem = itemTemp;
-					world->heldItem->grabbed = false;
-					world->heldItem = 0;
-					world->inventory[world->heldItemOriginId].type = 0;
-				}
-			}
+
+			// if (world->heldItem != NULL)
+			// {
+			// 	if (item->type)
+			// 	{
+			// 		world->heldItem = *item;
+			// 		world->heldItemOriginId = id;
+			// 		world->inventory[id].type = 0;
+			// 	}
+			// }
+			// else
+			// {
+			// 	if (world->heldItem.type == item->type)
+			// 	{
+			// 		item->amount += world->heldItem.amount;
+			// 		dealloc(get_heap_allocator(), world->heldItem);
+			// 	}
+			// 	else
+			// 	{
+			// 		Item *itemTemp = item;
+			// 		world->inventory[id].type = world->heldItem->type;
+			// 		world->inventory[id].amount = world->heldItem->amount;
+			// 		world->heldItem = itemTemp;
+			// 	}
+			// }
 		}
 	}
 
@@ -234,12 +239,8 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 	// Item
 	Matrix4 xform_item = m4_translate(xformCell, v3(INV_CELL_SIZE * 0.5, INV_CELL_SIZE * 0.5, 0.0));
 
-	// Pivot
-	Vector2 pivot = v2_mulf(getPivot(sprites[getItemSpriteId(item->type)].pivot), -1);
-	xform_item = m4_translate(xform_item, v3(pivot.x * finalSize.x, pivot.y * finalSize.y, 0));
-
-	draw_image_xform(sprite->image, m4_translate(xform_item, v3(0, -5, 0.0f)), finalSize, v4(0, 0, 0, 0.5));
-	draw_image_xform(sprite->image, xform_item, finalSize, item->grabbed ? v4(1, 1, 1, 0.5) : COLOR_WHITE);
+	drawSprite(itemsData[item->type].spriteId, m4_translate(xform_item, v3(0, -5, 0.0f)), finalSize, v4(0, 0, 0, 0.5));
+	drawSprite(itemsData[item->type].spriteId, xform_item, finalSize, COLOR_WHITE);
 
 	// Amount text
 	Matrix4 xform_itemCount = m4_scale(xformCell, v3(0.5, 0.5, 1));
@@ -272,8 +273,16 @@ void drawInventory()
 		cellPos.x = origin.x + (i % columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN);
 		cellPos.y = innerSize.y - INV_CELL_SIZE - (i / columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN) - origin.y;
 
-		drawItemCell(&world->inventory[i], m4_translate(xform_inner, v3(cellPos.x, cellPos.y, 0.0f)), i);
+		drawItemCell(world->inventory[i], m4_translate(xform_inner, v3(cellPos.x, cellPos.y, 0.0f)), i);
 	}
+
+	// Draw heldItem
+	// if (world->heldItem)
+	// {
+	// 	Matrix4 xform = draw_frame.camera_xform;
+	// 	xform = m4_translate(xform, v3(input_frame.mouse_x, input_frame.mouse_y, 0));
+	// 	drawSprite(getItemData(world->heldItem->type).spriteId, xform, v2(10, 10), COLOR_WHITE);
+	// }
 }
 
 void drawHotBar()
@@ -295,7 +304,7 @@ void checkMouseClickEntity()
 	{
 		Entity *selectedEntity = world->selectedEntity;
 
-		EntityData *entityData = getEntityData(selectedEntity->type);
+		EntityData *entityData = getEntityData(selectedEntity->entityType);
 		if (entityData->isDestroyable)
 		{
 			selectedEntity->health--;
@@ -307,6 +316,7 @@ void checkMouseClickEntity()
 				{
 					Entity *newEntity = createEntity();
 					setupEntity(newEntity, ENTITY_item, selectedEntity->pos);
+					newEntity->spriteId = getItemData(entityData->lootType).spriteId;
 					newEntity->itemType = entityData->lootType;
 				}
 
@@ -410,7 +420,7 @@ int entry(int argc, char **argv)
 		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
 		{
 			Entity *curEntity = &world->entitites[i];
-			EntityData *entityData = getEntityData(curEntity->type);
+			EntityData *entityData = getEntityData(curEntity->entityType);
 			if (curEntity->isValid && entityData->isSelectable)
 			{
 				float distCur = v2_length(v2_sub(v2_add(curEntity->pos, v2(0, tileSize * 0.25f)), mouseWorld));

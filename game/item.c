@@ -12,9 +12,6 @@ typedef enum ItemType
 typedef struct ItemData
 {
     SpriteId spriteId;
-
-    // TODO
-    string description;
 } ItemData;
 
 ItemData itemsData[ITEM_MAX] = {0};
@@ -23,7 +20,6 @@ typedef struct Item
 {
     ItemType type;
     int amount;
-    bool grabbed;
 } Item;
 
 void initItems()
@@ -32,7 +28,7 @@ void initItems()
     itemsData[ITEM_log] = (ItemData){.spriteId = SPRITE_ITEM_log};
 }
 
-SpriteId getItemSpriteId(ItemType type)
+ItemData getItemData(ItemType type)
 {
-    return itemsData[type].spriteId;
+    return itemsData[type];
 }
