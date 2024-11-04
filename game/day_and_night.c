@@ -1,37 +1,10 @@
-#pragma region DEFINE
-
-#define MAX_ENTITIES_COUNT 1024
-#define MAX_IMAGES_COUNT 1024
-#define MAX_ITEMS_COUNT 1024
-
-#define INV_COUNT 15
-#define STACK_SIZE 64
-#define INV_CELL_MARGIN 8
-#define INV_CELL_SIZE 64
-#define INV_UI_WIDTH 0.5
-#define INV_UI_HEIGHT 0.5
-#define INV_UI_INNER_MARGIN_X 0.15
-#define INV_UI_INNER_MARGIN_Y 0.25
-#define HOTBAR_AMOUNT 5
-
-#pragma endregion DEFINE
-
 #pragma region INCLUDE
 
-#include "game/sprite.c"
-#include "game/item.c"
-#include "game/entity.c"
-#include "game/item.c"
+#include "../game/sprite.c"
+#include "../game/item.c"
+#include "../game/entity.c"
 
 #pragma endregion INCLUDE
-
-#pragma region ENUM
-
-#pragma endregion ENUM
-
-#pragma region STRUCT
-
-#pragma endregion STRUCT
 
 #pragma region GLOBAL
 
@@ -120,15 +93,15 @@ void drawGround(Vector2 origin, Vector2 size)
 	}
 }
 
-bool addItemToInventoryAtIndex(ItemType type, int id)
+bool addItemToInventoryAtIndex(ItemType type, int id, int amount)
 {
 	Item *curItem = world->inventory[id];
-	if (curItem != NULL)
+	if (curItem->type)
 	{
 		if (curItem->type == type && curItem->amount < STACK_SIZE)
 		{
 			// Item already present, we add amount
-			curItem->amount++;
+			curItem->amount += amount;
 			return true;
 		}
 		else
@@ -137,20 +110,22 @@ bool addItemToInventoryAtIndex(ItemType type, int id)
 			return false;
 		}
 	}
+	else
+	{
+		// Current inventory cell is empty
+		world->inventory[id]->type = type;
+		world->inventory[id]->amount = amount;
 
-	// Current inventory cell is empty
-	curItem = new Item();
-	curItem->type = type;
-	curItem->amount = 1;
-	return true;
+		return true;
+	}
 }
 
-bool addItemToInventory(ItemType type)
+bool addItemToInventory(ItemType type, int amount)
 {
 	// Searching for the item in the inventory
 	for (int i = 0; i < INV_COUNT; i++)
 	{
-		if (addItemToInventoryAtIndex(type, i))
+		if (addItemToInventoryAtIndex(type, i, 1))
 		{
 			return true;
 		}
@@ -177,7 +152,7 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 	Draw_Quad *quad = draw_rect_xform(xformCell, v2(INV_CELL_SIZE, INV_CELL_SIZE), v4(0.5, 0.25, 0.5, 0.9));
 	Vector2 finalSize = v2(INV_CELL_SIZE, INV_CELL_SIZE);
 
-	// Mouse click detection
+	// Mouse hover detection
 	Vector2 mousePosNDC = getMousePosInNDC();
 	boolean hovered = colAABBPoint(quad->bottom_left, v2(quad->top_right.x - quad->bottom_left.x, quad->top_right.y - quad->bottom_left.y), mousePosNDC);
 
@@ -186,36 +161,37 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 	{
 		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
 		{
-			if (!world->heldItem->type)
-			{
-				world->heldItem = item;
-				world->inventory[id] = 0;
-			}
+			Item *heldItem = world->heldItem;
 
-			// if (world->heldItem != NULL)
-			// {
-			// 	if (item->type)
-			// 	{
-			// 		world->heldItem = *item;
-			// 		world->heldItemOriginId = id;
-			// 		world->inventory[id].type = 0;
-			// 	}
-			// }
-			// else
-			// {
-			// 	if (world->heldItem.type == item->type)
-			// 	{
-			// 		item->amount += world->heldItem.amount;
-			// 		dealloc(get_heap_allocator(), world->heldItem);
-			// 	}
-			// 	else
-			// 	{
-			// 		Item *itemTemp = item;
-			// 		world->inventory[id].type = world->heldItem->type;
-			// 		world->inventory[id].amount = world->heldItem->amount;
-			// 		world->heldItem = itemTemp;
-			// 	}
-			// }
+			if (!heldItem->type)
+			{
+				heldItem->type = item->type;
+				heldItem->amount = item->amount;
+
+				item->type = ITEM_nil;
+				item->amount = 0;
+			}
+			else
+			{
+				if (!item->type || item->type == heldItem->type)
+				{
+					item->type = heldItem->type;
+					if (item->amount + heldItem->amount <= STACK_SIZE)
+					{
+						item->amount += heldItem->amount;
+						heldItem->type = 0;
+					}
+					else
+					{
+						heldItem->amount -= STACK_SIZE - item->amount;
+						item->amount = STACK_SIZE;
+					}
+				}
+				else
+				{
+					// Different items, need to swap them
+				}
+			}
 		}
 	}
 
@@ -277,12 +253,16 @@ void drawInventory()
 	}
 
 	// Draw heldItem
-	// if (world->heldItem)
-	// {
-	// 	Matrix4 xform = draw_frame.camera_xform;
-	// 	xform = m4_translate(xform, v3(input_frame.mouse_x, input_frame.mouse_y, 0));
-	// 	drawSprite(getItemData(world->heldItem->type).spriteId, xform, v2(10, 10), COLOR_WHITE);
-	// }
+	if (world->heldItem->type)
+	{
+		SpriteId spriteId = getItemData(world->heldItem->type).spriteId;
+		Vector2 spriteSize = getspriteSize(spriteId);
+
+		Matrix4 xform = draw_frame.camera_xform;
+		xform = m4_translate(xform, v3(input_frame.mouse_x, input_frame.mouse_y, 0));
+		xform = m4_translate(xform, v3(-window.width * 0.5f, -window.height * 0.5f, 0));
+		drawSprite(spriteId, xform, v2(INV_CELL_SIZE * 0.75f, INV_CELL_SIZE * 0.75f), v4(1, 1, 1, 0.5f));
+	}
 }
 
 void drawHotBar()
@@ -326,7 +306,7 @@ void checkMouseClickEntity()
 		}
 		else if (entityData->isPickable)
 		{
-			addItemToInventory(selectedEntity->itemType);
+			addItemToInventory(selectedEntity->itemType, 1);
 			destroyEntity(selectedEntity);
 		}
 	}

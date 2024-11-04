@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../game/definitions.c"
+
 typedef enum EntityType
 {
     ENTITY_nil,
@@ -60,6 +62,13 @@ void initEntity()
     entityData[ENTITY_mineral] = (EntityData){.spriteId = SPRITE_mineral, .isDestroyable = true, .isSelectable = true, .lootType = ITEM_iron};
     entityData[ENTITY_tree] = (EntityData){.spriteId = SPRITE_tree, .isDestroyable = true, .isSelectable = true, .lootType = ITEM_log};
     entityData[ENTITY_item] = (EntityData){.isSelectable = true, .isPickable = true};
+
+    for (int i = 0; i < INV_COUNT; i++)
+    {
+        world->inventory[i] = alloc(get_heap_allocator(), sizeof(Item));
+    }
+
+    world->heldItem = alloc(get_heap_allocator(), sizeof(Item));
 }
 
 EntityData *getEntityData(EntityType type)
