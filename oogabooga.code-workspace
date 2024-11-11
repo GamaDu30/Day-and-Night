@@ -6,7 +6,12 @@
 	],
 	"settings": {
 		"files.associations": {
-			"algorithm": "c"
+			"algorithm": "c",
+			"utility": "c",
+			"xutility": "c",
+			"compare": "c",
+			"type_traits": "c",
+			"xtr1common": "c"
 		}
 	}
 }
