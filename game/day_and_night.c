@@ -20,32 +20,7 @@
 #define INV_UI_INNER_MARGIN_Y 0.25
 #define INV_HOTBAR_AMOUNT 5
 
-//: foward declaration
-struct World;
-struct Entity;
-
-struct World *world = 0;
-
-//: collision
-boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
-{
-	boolean res = point.x > pos.x &&
-				  point.x < pos.x + size.x &&
-				  point.y > pos.y &&
-				  point.y < pos.y + size.y;
-
-	draw_rect(pos, size, res ? v4(1, 0, 0, 0.5) : v4(1, 1, 1, 0.5));
-
-	return res;
-}
-
-boolean colCircleCircle(Vector2 p1, float r1, Vector2 p2, float r2)
-{
-	float dist = v2_length(v2_sub(p1, p2));
-	return dist < r1 + r2;
-}
-
-//: sprite
+//: enums
 typedef enum SpriteId
 {
 	SPRITE_nil,
@@ -70,13 +45,112 @@ typedef enum Pivot
 	PIVOT_BOT_RIGHT,
 } Pivot;
 
+typedef enum EntityType
+{
+	ENTITY_nil,
+	ENTITY_player,
+	ENTITY_mineral,
+	ENTITY_tree,
+	ENTITY_item,
+	ENTITY_MAX,
+} EntityType;
+
+typedef enum ItemType
+{
+	ITEM_nil,
+	ITEM_iron,
+	ITEM_log,
+	ITEM_MAX
+} ItemType;
+
+typedef enum UXState
+{
+	UX_nil,
+	UX_inventory,
+} UXState;
+
+//: structs
 typedef struct Sprite
 {
 	Gfx_Image *image;
 	Pivot pivot;
 } Sprite;
 
-Sprite sprites[SPRITE_MAX];
+typedef struct ItemData
+{
+	SpriteId spriteId;
+} ItemData;
+
+typedef struct Item
+{
+	ItemType type;
+	int amount;
+} Item;
+
+typedef struct Entity
+{
+	bool isValid;
+
+	EntityType entityType;
+	ItemType itemType;
+	SpriteId spriteId;
+
+	Vector2 pos;
+	int health;
+
+	int amount;
+} Entity;
+
+typedef struct EntityData
+{
+	SpriteId spriteId;
+
+	bool isDestroyable;
+	bool isSelectable;
+	bool isPickable;
+
+	ItemType lootType;
+} EntityData;
+
+typedef struct World
+{
+	Entity entitites[MAX_ENTITIES_COUNT];
+	Entity *selectedEntity;
+	Item *inventory[INV_COUNT];
+	Item hotbar[INV_HOTBAR_AMOUNT];
+	Item *heldItem;
+	int heldItemOriginId;
+	UXState uxState;
+} World;
+
+//: global
+
+World *world = 0;
+Sprite sprites[SPRITE_MAX] = {0};
+ItemData itemsData[ITEM_MAX] = {0};
+EntityData entityData[ENTITY_MAX] = {0};
+Gfx_Font *font = 0;
+
+//: collision
+boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
+{
+	boolean res = point.x > pos.x &&
+				  point.x < pos.x + size.x &&
+				  point.y > pos.y &&
+				  point.y < pos.y + size.y;
+
+	draw_rect(pos, size, res ? v4(1, 0, 0, 0.5) : v4(1, 1, 1, 0.5));
+
+	return res;
+}
+
+boolean colCircleCircle(Vector2 p1, float r1, Vector2 p2, float r2)
+{
+	float dist = v2_length(v2_sub(p1, p2));
+	return dist < r1 + r2;
+}
+
+//: sprite
 
 Sprite *getSpriteFromId(SpriteId spriteId)
 {
@@ -156,26 +230,6 @@ void drawSprite(SpriteId spriteId, Matrix4 xform, Vector2 size, Vector4 color)
 }
 
 //: item
-typedef enum ItemType
-{
-	ITEM_nil,
-	ITEM_iron,
-	ITEM_log,
-	ITEM_MAX
-} ItemType;
-
-typedef struct ItemData
-{
-	SpriteId spriteId;
-} ItemData;
-
-ItemData itemsData[ITEM_MAX] = {0};
-
-typedef struct Item
-{
-	ItemType type;
-	int amount;
-} Item;
 
 void initItems()
 {
@@ -194,7 +248,13 @@ Vector2 getMousePosInNDC()
 	return v2(input_frame.mouse_x / (window.width * 0.5) - 1.0f, input_frame.mouse_y / (window.height * 0.5) - 1.0f);
 }
 
-bool addItemToInventoryAtIndex(Entity *itemEntity, int id)
+void destroyEntity(Entity *entity)
+{
+	entity->isValid = false;
+	memset(entity, 0, sizeof(Entity));
+}
+
+bool addItemToInventoryAtIndex(struct Entity *itemEntity, int id)
 {
 	Item *curItem = world->inventory[id];
 	if (curItem->type)
@@ -282,9 +342,10 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 	// Mouse click check
 	if (hovered)
 	{
+		Item *heldItem = world->heldItem;
+
 		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
 		{
-			Item *heldItem = world->heldItem;
 
 			if (!heldItem->type)
 			{
@@ -325,6 +386,12 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 					heldItem->amount = tempAmount;
 				}
 			}
+		}
+		else if (is_key_just_pressed(MOUSE_BUTTON_RIGHT) && item->type)
+		{
+			heldItem->type = item->type;
+			heldItem->amount = (item->amount >> 1) + item->amount % 2;
+			item->amount = item->amount >> 1;
 		}
 	}
 
@@ -412,59 +479,6 @@ void drawHotBar()
 }
 
 //: entity
-typedef enum EntityType
-{
-	ENTITY_nil,
-	ENTITY_player,
-	ENTITY_mineral,
-	ENTITY_tree,
-	ENTITY_item,
-	ENTITY_MAX,
-} EntityType;
-
-typedef struct Entity
-{
-	bool isValid;
-
-	EntityType entityType;
-	ItemType itemType;
-	SpriteId spriteId;
-
-	Vector2 pos;
-	int health;
-
-	int amount;
-} Entity;
-
-typedef struct EntityData
-{
-	SpriteId spriteId;
-
-	bool isDestroyable;
-	bool isSelectable;
-	bool isPickable;
-
-	ItemType lootType;
-} EntityData;
-
-EntityData entityData[ENTITY_MAX] = {0};
-
-typedef enum UXState
-{
-	UX_nil,
-	UX_inventory,
-} UXState;
-
-typedef struct World
-{
-	Entity entitites[MAX_ENTITIES_COUNT];
-	Entity *selectedEntity;
-	Item *inventory[INV_COUNT];
-	Item hotbar[INV_HOTBAR_AMOUNT];
-	Item *heldItem;
-	int heldItemOriginId;
-	UXState uxState;
-} World;
 
 void initEntity()
 {
@@ -521,12 +535,6 @@ void setupEntity(Entity *entity, EntityType type, Vector2 pos)
 	}
 }
 
-void destroyEntity(Entity *entity)
-{
-	entity->isValid = false;
-	memset(entity, 0, sizeof(Entity));
-}
-
 void drawEntity(Entity *entity)
 {
 	Sprite *sprite = getSpriteFromId(entity->spriteId);
@@ -558,8 +566,6 @@ void drawEntity(Entity *entity)
 	draw_image_xform(sprite->image, xform, size, col);
 }
 
-Gfx_Font *font;
-
 //: global functions
 float lerp_f(float a, float b, float t)
 {
@@ -589,29 +595,6 @@ Vector2 worldToTilePos(Vector2 worldPos)
 Vector2 tileToWorldPos(Vector2 tilePos)
 {
 	return v2_mulf(tilePos, TILE_SIZE);
-}
-
-Vector2 getMousePosInNDC()
-{
-	return v2(input_frame.mouse_x / (window.width * 0.5) - 1.0f, input_frame.mouse_y / (window.height * 0.5) - 1.0f);
-}
-
-boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
-{
-	boolean res = point.x > pos.x &&
-				  point.x < pos.x + size.x &&
-				  point.y > pos.y &&
-				  point.y < pos.y + size.y;
-
-	draw_rect(pos, size, res ? v4(1, 0, 0, 0.5) : v4(1, 1, 1, 0.5));
-
-	return res;
-}
-
-boolean colCircleCircle(Vector2 p1, float r1, Vector2 p2, float r2)
-{
-	float dist = v2_length(v2_sub(p1, p2));
-	return dist < r1 + r2;
 }
 
 void checkMouseClickEntity()
