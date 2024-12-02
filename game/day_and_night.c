@@ -87,6 +87,17 @@ typedef struct Item
 	int amount;
 } Item;
 
+typedef struct EntityData
+{
+	SpriteId spriteId;
+
+	bool isDestroyable;
+	bool isSelectable;
+	bool isPickable;
+
+	ItemType lootType;
+} EntityData;
+
 typedef struct Entity
 {
 	bool isValid;
@@ -101,17 +112,6 @@ typedef struct Entity
 	int amount;
 } Entity;
 
-typedef struct EntityData
-{
-	SpriteId spriteId;
-
-	bool isDestroyable;
-	bool isSelectable;
-	bool isPickable;
-
-	ItemType lootType;
-} EntityData;
-
 typedef struct World
 {
 	Entity entitites[MAX_ENTITIES_COUNT];
@@ -124,12 +124,16 @@ typedef struct World
 } World;
 
 //: global
-
 World *world = 0;
 Sprite sprites[SPRITE_MAX] = {0};
 ItemData itemsData[ITEM_MAX] = {0};
 EntityData entityData[ENTITY_MAX] = {0};
 Gfx_Font *font = 0;
+Entity *player = 0;
+
+//: Foward declarations
+Entity *createEntity();
+void setupEntity(Entity *entity, EntityType type, Vector2 pos);
 
 //: collision
 boolean colAABBPoint(Vector2 pos, Vector2 size, Vector2 point)
@@ -261,18 +265,19 @@ bool addItemToInventoryAtIndex(struct Entity *itemEntity, int id)
 	{
 		if (curItem->type == itemEntity->itemType)
 		{
-			// Checking if we're not going over the stack size
-			if (curItem->amount + itemEntity->amount > INV_STACK_SIZE)
+			if (curItem->amount >= INV_STACK_SIZE)
+			{
+				return false;
+			}
+			else if (curItem->amount + itemEntity->amount > INV_STACK_SIZE)
 			{
 				itemEntity->amount -= INV_STACK_SIZE - curItem->amount;
 				curItem->amount = INV_STACK_SIZE;
-			}
-			else
-			{
-				curItem->amount += itemEntity->amount;
-				destroyEntity(itemEntity);
+				return false;
 			}
 
+			curItem->amount += itemEntity->amount;
+			destroyEntity(itemEntity);
 			return true;
 		}
 
@@ -292,29 +297,17 @@ bool addItemToInventoryAtIndex(struct Entity *itemEntity, int id)
 
 bool addItemToInventory(Entity *itemEntity)
 {
-	int firstAvailableId = -1;
-
 	for (int i = 0; i < INV_COUNT; i++)
 	{
-		if (!world->inventory[i]->type && firstAvailableId < 0)
+		if (world->inventory[i]->type == itemEntity->itemType || world->inventory[i]->type == 0)
 		{
-			firstAvailableId = i;
-		}
-
-		if (world->inventory[i]->type == itemEntity->itemType)
-		{
-			addItemToInventoryAtIndex(itemEntity, i);
-			return true;
+			if (addItemToInventoryAtIndex(itemEntity, i))
+			{
+				return true;
+			}
 		}
 	}
 
-	if (firstAvailableId >= 0)
-	{
-		addItemToInventoryAtIndex(itemEntity, firstAvailableId);
-		return true;
-	}
-
-	// Inventory is full
 	return false;
 }
 
@@ -392,6 +385,21 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 			heldItem->type = item->type;
 			heldItem->amount = (item->amount >> 1) + item->amount % 2;
 			item->amount = item->amount >> 1;
+
+			if (!item->amount)
+			{
+				item->type = ITEM_nil;
+			}
+		}
+		else if (is_key_just_pressed('O') && item->type)
+		{
+			Entity *newEntity = createEntity();
+			setupEntity(newEntity, ENTITY_item, player->pos);
+			newEntity->spriteId = getItemData(item->type).spriteId;
+			newEntity->itemType = item->type;
+			newEntity->amount = item->amount;
+
+			removeItemFromInventory(item);
 		}
 	}
 
@@ -672,7 +680,7 @@ int entry(int argc, char **argv)
 	initItems();
 	initEntity();
 
-	Entity *player = createEntity();
+	player = createEntity();
 	setupEntity(player, ENTITY_player, v2(0, 0));
 	player->health = 100;
 
@@ -749,7 +757,7 @@ int entry(int argc, char **argv)
 			}
 		}
 
-		// Mouse Click
+		//: Input
 		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
 		{
 			// consume_key_just_pressed(MOUSE_BUTTON_LEFT);
