@@ -329,8 +329,7 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 	Vector2 finalSize = v2(INV_CELL_SIZE, INV_CELL_SIZE);
 
 	// Mouse hover detection
-	Vector2 mousePosNDC = getMousePosInNDC();
-	boolean hovered = colAABBPoint(quad->bottom_left, v2(quad->top_right.x - quad->bottom_left.x, quad->top_right.y - quad->bottom_left.y), mousePosNDC);
+	boolean hovered = colAABBPoint(quad->bottom_left, v2(quad->top_right.x - quad->bottom_left.x, quad->top_right.y - quad->bottom_left.y), getMousePosInNDC());
 
 	// Mouse click check
 	if (hovered)
@@ -433,43 +432,44 @@ void drawItemCell(Item *item, Matrix4 xformCell, int id)
 	draw_text_xform(font, tprint("%ix", item->amount), 48, xform_itemCount, v2(1, 1), COLOR_WHITE);
 }
 
+void drawHeldItem(Item *heldItem, Matrix4 cameraTransform)
+{
+	SpriteId spriteId = getItemData(heldItem->type).spriteId;
+	Vector2 spriteSize = getspriteSize(spriteId);
+	Matrix4 xform = m4_translate(cameraTransform, v3(input_frame.mouse_x - window.width * 0.5f, input_frame.mouse_y - window.height * 0.5f, 0));
+	drawSprite(spriteId, xform, v2(INV_CELL_SIZE * 0.75f, INV_CELL_SIZE * 0.75f), v4(1, 1, 1, 0.5f));
+}
+
 void drawInventory()
 {
 	// Background
-	Vector2 inventoryGlobalSize = v2(window.width * INV_UI_WIDTH, window.height * INV_UI_HEIGHT);
-	draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-inventoryGlobalSize.x * 0.5f, -inventoryGlobalSize.y * 0.5f, 0)), inventoryGlobalSize, v4(0.25f, 0.25f, 0.25f, 0.9f));
+	Vector2 inventorySize = v2(window.width * INV_UI_WIDTH, window.height * INV_UI_HEIGHT);
+	Matrix4 bgTransform = m4_translate(draw_frame.camera_xform, v3(-inventorySize.x * 0.5f, -inventorySize.y * 0.5f, 0));
+	draw_rect_xform(bgTransform, inventorySize, v4(0.25f, 0.25f, 0.25f, 0.9f));
 
-	Vector2 innerSize = v2_mul(inventoryGlobalSize, v2(1.0f - INV_UI_INNER_MARGIN_X, 1.0f - INV_UI_INNER_MARGIN_Y));
-	// draw_rect_xform(m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0)), innerSize, v4(0.5f, 0.5f, 0.5f, 0.8f));
+	// Inner Area
+	Vector2 innerSize = v2_mul(inventorySize, v2(1.0f - INV_UI_INNER_MARGIN_X, 1.0f - INV_UI_INNER_MARGIN_Y));
+	Matrix4 innerTransform = m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0));
 
-	// Items
+	// Calculate Grid
 	int columnSize = floor(innerSize.x / (INV_CELL_SIZE + INV_CELL_MARGIN));
+	Vector2 origin = v2(
+		(innerSize.x - ((INV_CELL_SIZE + INV_CELL_MARGIN) * columnSize - INV_CELL_MARGIN)) * 0.5f,
+		(innerSize.y - ((INV_CELL_SIZE + INV_CELL_MARGIN) * ceil(INV_COUNT / (float)columnSize) - INV_CELL_MARGIN)) * 0.5f);
 
-	Vector2 origin;
-	origin.x = (innerSize.x - ((INV_CELL_SIZE + INV_CELL_MARGIN) * columnSize - INV_CELL_MARGIN)) * 0.5;
-	origin.y = (innerSize.y - ((INV_CELL_SIZE + INV_CELL_MARGIN) * ceil(INV_COUNT / (float)columnSize) - INV_CELL_MARGIN)) * 0.5;
-
-	Matrix4 xform_inner = m4_translate(draw_frame.camera_xform, v3(-innerSize.x * 0.5f, -innerSize.y * 0.5f, 0.0f));
-
+	// Draw Inventory Items
 	for (int i = 0; i < INV_COUNT; i++)
 	{
-		Vector2 cellPos;
-		cellPos.x = origin.x + (i % columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN);
-		cellPos.y = innerSize.y - INV_CELL_SIZE - (i / columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN) - origin.y;
-
-		drawItemCell(world->inventory[i], m4_translate(xform_inner, v3(cellPos.x, cellPos.y, 0.0f)), i);
+		Vector2 cellPos = v2(
+			origin.x + (i % columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN),
+			innerSize.y - INV_CELL_SIZE - (i / columnSize) * (INV_CELL_SIZE + INV_CELL_MARGIN) - origin.y);
+		drawItemCell(world->inventory[i], m4_translate(innerTransform, v3(cellPos.x, cellPos.y, 0)), i);
 	}
 
-	// Draw heldItem
+	// Draw Held Item
 	if (world->heldItem->type)
 	{
-		SpriteId spriteId = getItemData(world->heldItem->type).spriteId;
-		Vector2 spriteSize = getspriteSize(spriteId);
-
-		Matrix4 xform = draw_frame.camera_xform;
-		xform = m4_translate(xform, v3(input_frame.mouse_x, input_frame.mouse_y, 0));
-		xform = m4_translate(xform, v3(-window.width * 0.5f, -window.height * 0.5f, 0));
-		drawSprite(spriteId, xform, v2(INV_CELL_SIZE * 0.75f, INV_CELL_SIZE * 0.75f), v4(1, 1, 1, 0.5f));
+		drawHeldItem(world->heldItem, draw_frame.camera_xform);
 	}
 }
 
@@ -740,25 +740,32 @@ int entry(int argc, char **argv)
 		Vector2 mouseWorld = screenToWorld(v2(input_frame.mouse_x, input_frame.mouse_y));
 
 		// Entity Selection
-		float distMin = 1000;
-		world->selectedEntity = 0;
-		for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
+		if (world->uxState == UX_nil)
 		{
-			Entity *curEntity = &world->entitites[i];
-			EntityData *entityData = getEntityData(curEntity->entityType);
-			if (curEntity->isValid && entityData->isSelectable)
+			float distMin = 1000;
+			world->selectedEntity = 0;
+			for (int i = 0; i < MAX_ENTITIES_COUNT; i++)
 			{
-				float distCur = v2_length(v2_sub(v2_add(curEntity->pos, v2(0, TILE_SIZE * 0.25f)), mouseWorld));
-				if (distCur < ENT_SELECT_RADIUS && distCur < distMin)
+				Entity *curEntity = &world->entitites[i];
+				EntityData *entityData = getEntityData(curEntity->entityType);
+				if (curEntity->isValid && entityData->isSelectable)
 				{
-					distMin = distCur;
-					world->selectedEntity = curEntity;
+					float distCur = v2_length(v2_sub(v2_add(curEntity->pos, v2(0, TILE_SIZE * 0.25f)), mouseWorld));
+					if (distCur < ENT_SELECT_RADIUS && distCur < distMin)
+					{
+						distMin = distCur;
+						world->selectedEntity = curEntity;
+					}
 				}
 			}
 		}
+		else
+		{
+			world->selectedEntity = 0;
+		}
 
 		//: Input
-		if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
+		if (is_key_just_pressed(MOUSE_BUTTON_LEFT) && world->uxState == UX_nil)
 		{
 			// consume_key_just_pressed(MOUSE_BUTTON_LEFT);
 			checkMouseClickEntity();
